@@ -81,23 +81,25 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
   }
 
+  disposeMesh(m) {
+    m.geometry.disposeBoundsTree();
+    m.geometry.dispose();
+    m.material.dispose();
+    m.removeFromParent();
+  }
+
   clear() {
     this.clearHighlight();
-    for (const m of this.meshes) {
-      m.geometry.disposeBoundsTree();
-      m.geometry.dispose();
-      m.material.dispose();
-      m.removeFromParent();
-    }
+    for (const m of this.meshes) this.disposeMesh(m);
     this.meshes = [];
     this.modelRoot.position.set(0, 0, 0);
     this.modelRoot.quaternion.identity();
     this.modelRoot.scale.setScalar(1);
+    this.updateBounds();
   }
 
-  /** Vloží model z výsledku workeru (geometrie sloučená podle barvy). */
-  setModel(buckets) {
-    this.clear();
+  /** Přidá model z výsledku workeru (geometrie sloučená podle barvy). `fit` = pohled na celek. */
+  addModel(modelID, buckets, fit = true) {
     // neprůhledné napřed, průhledné (okna) až po nich
     buckets.sort((a, b) => b.color[3] - a.color[3]);
     for (const b of buckets) {
@@ -117,14 +119,27 @@ export class Viewer {
       });
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData.ranges = b.ranges;
+      mesh.userData.modelID = modelID;
+      mesh.renderOrder = transparent ? 1 : 0;
       mesh.matrixAutoUpdate = false;
       this.modelRoot.add(mesh);
       this.meshes.push(mesh);
     }
+    this.updateBounds();
+    if (fit) this.fitView();
+  }
+
+  removeModel(modelID) {
+    if (this.selectedId?.model === modelID) this.clearHighlight();
+    for (const m of this.meshes) if (m.userData.modelID === modelID) this.disposeMesh(m);
+    this.meshes = this.meshes.filter((m) => m.userData.modelID !== modelID);
+    this.updateBounds();
+  }
+
+  updateBounds() {
     this.bbox.makeEmpty();
     for (const m of this.meshes) this.bbox.union(m.geometry.boundingBox);
     this.updateGround();
-    this.fitView();
   }
 
   get groundY() { return this.bbox.isEmpty() ? 0 : this.bbox.min.y; }
@@ -158,7 +173,7 @@ export class Viewer {
     this.controls.update();
   }
 
-  /** expressID z průsečíku: rozsahy indexů jsou seřazené, hledá se půlením. */
+  /** Prvek z průsečíku { model, id }: rozsahy indexů jsou seřazené, hledá se půlením. */
   idFromHit(hit) {
     const ranges = hit.object.userData.ranges;
     if (!ranges || hit.faceIndex == null) return null;
@@ -169,7 +184,7 @@ export class Viewer {
       const s = ranges[mid * 3], n = ranges[mid * 3 + 1];
       if (i < s) hi = mid - 1;
       else if (i >= s + n) lo = mid + 1;
-      else return ranges[mid * 3 + 2];
+      else return { model: hit.object.userData.modelID, id: ranges[mid * 3 + 2] };
     }
     return null;
   }
@@ -197,11 +212,14 @@ export class Viewer {
     this.selectedId = null;
   }
 
-  setHighlight(id) {
+  /** Zvýrazní prvek { model, id } (nebo nic při null). */
+  setHighlight(ref) {
     this.clearHighlight();
-    if (id == null) return;
-    this.selectedId = id;
+    if (ref == null) return;
+    this.selectedId = ref;
+    const { id } = ref;
     for (const mesh of this.meshes) {
+      if (mesh.userData.modelID !== ref.model) continue;
       const ranges = mesh.userData.ranges;
       const parts = [];
       let total = 0;

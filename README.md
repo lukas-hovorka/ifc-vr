@@ -3,7 +3,9 @@
 Jednoduchá webová aplikace (WebXR) pro prohlížení modelu IFC v brýlích **Meta Quest 3**.
 Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počítači funguje jako běžný 3D prohlížeč.
 
-- načtení IFC přetažením, výběrem souboru, ze složky `models/` nebo přes `?model=adresa.ifc`
+- načtení IFC přetažením, výběrem souboru, ze složky `models/` nebo přes `?model=a.ifc&model=b.ifc`
+- **více modelů najednou** (např. profese stavby): sedí na sebe podle souřadnic prvního modelu; model se
+  souřadnicemi dál než 10 km se umístí do počátku. Načtené modely jde jednotlivě odebrat.
 - **VR 1:1**: procházení modelem ve skutečné velikosti (teleport, chůze, let nahoru/dolů)
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
@@ -36,8 +38,10 @@ WebXR vyžaduje zabezpečené připojení (`https://` nebo `localhost`).
 1. V Questu otevřete v prohlížeči adresu aplikace na GitHub Pages.
 2. V nabídce prohlížeče zvolte **Nainstalovat aplikaci**, ikona *IFC VR* se objeví v knihovně aplikací.
    Po prvním spuštění funguje i offline.
-3. Soubor IFC si stáhněte do brýlí (např. z OneDrive / SharePointu v prohlížeči Questu) a otevřete ho
-   klepnutím na drop zónu. Model se zpracuje jen v brýlích, nikam se neodesílá.
+3. Soubory IFC si stáhněte do brýlí (např. z OneDrive / SharePointu v prohlížeči Questu) a otevřete je
+   klepnutím na drop zónu. Ve výběru souborů jde označit víc souborů najednou (dlouhé podržení spouště na
+   prvním souboru, pak klepnout na další). Další model jde přidat i později dalším klepnutím na drop zónu.
+   Modely se zpracují jen v brýlích, nikam se neodesílají.
 
 Pro vývoj jde aplikaci pustit i z počítače:
 

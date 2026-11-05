@@ -195,6 +195,7 @@ export class VRPanel {
 
       // řádky vlastností (stránkované)
       const rows = [];
+      if (inf.model) rows.push(['Model', inf.model, false]);
       if (inf.objectType) rows.push(['Typ objektu', inf.objectType, false]);
       if (inf.globalId) rows.push(['GlobalId', inf.globalId, false]);
       for (const s of inf.sets) {

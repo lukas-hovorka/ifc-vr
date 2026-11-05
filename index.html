@@ -24,16 +24,21 @@
 
     <div class="side__body" id="side-body">
       <label class="ebc-dropzone side__drop" id="drop">
-        <input type="file" id="file" accept=".ifc" hidden>
+        <input type="file" id="file" accept=".ifc" multiple hidden>
         <span class="ebc-dropzone__progress" id="drop-progress" style="width:0"></span>
         <svg class="ebc-icon ebc-dropzone__icon" id="drop-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-ifc"/></svg>
-        <span class="ebc-dropzone__title" id="drop-title">Přetáhněte soubor IFC sem</span>
-        <span class="ebc-dropzone__hint">nebo vyberte kliknutím</span>
+        <span class="ebc-dropzone__title" id="drop-title">Přetáhněte soubory IFC sem</span>
+        <span class="ebc-dropzone__hint">nebo vyberte kliknutím – i více najednou</span>
       </label>
+
+      <section class="side__section" id="loaded-sec" hidden>
+        <h2 class="ebc-group-label">Načtené modely <span class="side__count" id="loaded-count"></span></h2>
+        <ul class="ebc-list ebc-list--accent model-list" id="loaded"></ul>
+      </section>
 
       <section class="side__section" id="models-sec" hidden>
         <h2 class="ebc-group-label">Modely ve složce models</h2>
-        <ul class="ebc-list ebc-list--accent" id="models"></ul>
+        <ul class="ebc-list ebc-list--accent model-list" id="models"></ul>
       </section>
 
       <p class="ebc-small side__status" id="status" aria-live="polite"></p>

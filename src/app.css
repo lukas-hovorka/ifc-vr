@@ -34,11 +34,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .side__status.is-success { color: var(--ebc-color-text-success); }
 .side__actions { display: flex; justify-content: flex-end; gap: var(--ebc-space-10); flex-wrap: wrap; }
 
-#models { max-height: var(--ebc-size-filelist-max-height); overflow-y: auto; }
-#models > li { cursor: pointer; display: flex; gap: var(--ebc-space-8); font-size: var(--ebc-font-size-md); }
-#models > li:hover { background: var(--ebc-color-list-hover); }
-#models .model__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#models .model__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; }
+/* seznam souborů: název, velikost, u načtených tlačítko Odebrat */
+.model-list { max-height: var(--ebc-size-filelist-max-height); overflow-y: auto; }
+.model-list > li { display: flex; align-items: center; gap: var(--ebc-space-8); font-size: var(--ebc-font-size-md); }
+#models > li { cursor: pointer; }
+.model-list > li:hover { background: var(--ebc-color-list-hover); }
+.model-list .model__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-list .model__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; }
+.side__count { color: var(--ebc-color-text-secondary); text-transform: none; }
 
 .info__name { font: var(--ebc-typography-subtitle); margin: 0; overflow-wrap: anywhere; }
 .info__sub { margin: 0; color: var(--ebc-color-text-secondary); }

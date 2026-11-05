@@ -1,12 +1,14 @@
 // Web Worker: načte IFC přes web-ifc, sloučí geometrii podle barvy a vrátí ji hlavnímu vláknu.
-// Model zůstává otevřený, aby šly dotazovat vlastnosti vybraného prvku.
+// Modely zůstávají otevřené, aby šly dotazovat vlastnosti vybraného prvku. Najednou jich může být víc
+// (např. profese stavby): všechny se umístí do souřadnic prvního načteného modelu.
 import * as WebIFC from 'web-ifc';
 
 const api = new WebIFC.IfcAPI();
 let ready = null;
-let modelID = -1;
-let storeyOf = new Map();
-const storeyNames = new Map();
+/** modelID → { storeyOf, storeyNames } */
+const models = new Map();
+/** Matice posunu k počátku prvního modelu; další modely se k ní vztahují. */
+let refMatrix = null;
 
 class Grow {
   constructor(T, n = 1 << 16) { this.T = T; this.a = new T(n); this.n = 0; }
@@ -31,7 +33,7 @@ function init(wasmPath) {
   return ready;
 }
 
-function idsOfType(type) {
+function idsOfType(modelID, type) {
   const out = [];
   const v = api.GetLineIDsWithType(modelID, type, true);
   for (let i = 0; i < v.size(); i++) out.push(v.get(i));
@@ -40,17 +42,44 @@ function idsOfType(type) {
 
 const val = (x) => (x == null ? null : typeof x === 'object' && 'value' in x ? x.value : x);
 
-async function load(buffer) {
-  if (modelID >= 0) { api.CloseModel(modelID); modelID = -1; }
-  storeyOf = new Map();
-  storeyNames.clear();
+// 4×4 matice po sloupcích (jako v three.js / web-ifc)
+function mul(a, b) {
+  const o = new Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+  }
+  return o;
+}
+/** Inverze afinní matice (rotace/měřítko + posun). */
+function invAffine(m) {
+  const [a, b, c, , d, e, f, , g, h, i] = m;
+  const det = a * (e * i - f * h) - d * (b * i - c * h) + g * (b * f - c * e);
+  const k = 1 / det;
+  const r = [
+    (e * i - f * h) * k, (c * h - b * i) * k, (b * f - c * e) * k, 0,
+    (f * g - d * i) * k, (a * i - c * g) * k, (c * d - a * f) * k, 0,
+    (d * h - e * g) * k, (b * g - a * h) * k, (a * e - b * d) * k, 0,
+    0, 0, 0, 1,
+  ];
+  const tx = m[12], ty = m[13], tz = m[14];
+  r[12] = -(r[0] * tx + r[4] * ty + r[8] * tz);
+  r[13] = -(r[1] * tx + r[5] * ty + r[9] * tz);
+  r[14] = -(r[2] * tx + r[6] * ty + r[10] * tz);
+  return r;
+}
+const FAR_APART = 10000; // m
+const isIdentity = (m) => m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
 
+async function load(buffer) {
   progress('parse', 0);
-  modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
+  const modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
   if (modelID < 0) throw new Error('Soubor se nepodařilo otevřít jako IFC.');
+  const storeyOf = new Map();
+  const storeyNames = new Map();
+  models.set(modelID, { storeyOf, storeyNames });
   const schema = api.GetModelSchema(modelID);
 
-  const skip = new Set([...idsOfType(WebIFC.IFCSPACE), ...idsOfType(WebIFC.IFCOPENINGELEMENT)]);
+  const skip = new Set([...idsOfType(modelID, WebIFC.IFCSPACE), ...idsOfType(modelID, WebIFC.IFCOPENINGELEMENT)]);
 
   const buckets = new Map();
   let elements = 0;
@@ -108,6 +137,31 @@ async function load(buffer) {
     }
   });
 
+  // každý model posune web-ifc k vlastnímu počátku; další modely se vrátí do souřadnic prvního
+  // (dál než FAR_APART od sebe = jiný souřadnicový systém, model zůstane v počátku)
+  const coord = api.GetCoordinationMatrix(modelID);
+  let aligned = true;
+  if (!refMatrix) refMatrix = coord;
+  else {
+    const R = mul(refMatrix, invAffine(coord));
+    aligned = Math.hypot(R[12], R[13], R[14]) <= FAR_APART;
+    if (aligned && !isIdentity(R)) {
+      for (const b of buckets.values()) {
+        const P = b.pos.a, N = b.nrm.a;
+        for (let o = 0; o < b.pos.n; o += 3) {
+          const x = P[o], y = P[o + 1], z = P[o + 2];
+          P[o] = R[0] * x + R[4] * y + R[8] * z + R[12];
+          P[o + 1] = R[1] * x + R[5] * y + R[9] * z + R[13];
+          P[o + 2] = R[2] * x + R[6] * y + R[10] * z + R[14];
+          const a = N[o], bb = N[o + 1], cc = N[o + 2];
+          N[o] = R[0] * a + R[4] * bb + R[8] * cc;
+          N[o + 1] = R[1] * a + R[5] * bb + R[9] * cc;
+          N[o + 2] = R[2] * a + R[6] * bb + R[10] * cc;
+        }
+      }
+    }
+  }
+
   progress('structure', 0);
   try {
     const tree = await api.properties.getSpatialStructure(modelID);
@@ -139,7 +193,7 @@ async function load(buffer) {
     transfer.push(item.position.buffer, item.normal.buffer, item.index.buffer, item.ranges.buffer);
     out.push(item);
   }
-  return { result: { schema, elements, buckets: out }, transfer };
+  return { result: { modelID, schema, elements, aligned, buckets: out }, transfer };
 }
 
 const fmtNum = (n) => {
@@ -158,11 +212,21 @@ function fmt(v) {
   return String(v);
 }
 
-async function props(id) {
-  if (modelID < 0) return null;
+function close(modelID) {
+  if (!models.has(modelID)) return;
+  api.CloseModel(modelID);
+  models.delete(modelID);
+  if (!models.size) refMatrix = null;
+}
+
+async function props(modelID, id) {
+  const m = models.get(modelID);
+  if (!m) return null;
+  const { storeyOf, storeyNames } = m;
   const line = api.GetLine(modelID, id);
   const storey = storeyOf.get(id);
   const out = {
+    modelID,
     expressID: id,
     type: api.GetNameFromTypeCode(line.type),
     name: val(line.Name) || '',
@@ -207,7 +271,10 @@ self.onmessage = async (e) => {
       const { result, transfer } = await load(payload.buffer);
       self.postMessage({ id, result }, transfer);
     } else if (type === 'props') {
-      self.postMessage({ id, result: await props(payload.expressID) });
+      self.postMessage({ id, result: await props(payload.modelID, payload.expressID) });
+    } else if (type === 'close') {
+      close(payload.modelID);
+      self.postMessage({ id, result: true });
     }
   } catch (err) {
     self.postMessage({ id, error: err?.message || String(err) });

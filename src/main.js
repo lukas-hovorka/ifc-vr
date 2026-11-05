@@ -27,6 +27,7 @@ const $ = (id) => document.getElementById(id);
 const ui = {
   side: $('side'), drop: $('drop'), file: $('file'), dropTitle: $('drop-title'), dropProgress: $('drop-progress'),
   modelsSec: $('models-sec'), models: $('models'), status: $('status'),
+  loadedSec: $('loaded-sec'), loaded: $('loaded'), loadedCount: $('loaded-count'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
 };
 
@@ -67,60 +68,113 @@ $('btn-collapse').addEventListener('click', (e) => {
 });
 
 // ---------- načtení ----------
+// Modelů může být víc (profese stavby); zobrazí se spolu v souřadnicích prvního.
+/** @type {{ modelID:number, name:string, size:number, elements:number, tris:number }[]} */
+const loaded = [];
+const queue = [];
+/** Modely, které nesedí na souřadnice prvního (jiný souřadnicový systém). */
+const notes = [];
+const MISALIGNED = 'Souřadnice jsou dál než 10 km od prvního modelu, model je umístěný do počátku.';
+
+const plural = (n, one, few, many) => `${n.toLocaleString('cs-CZ')} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
+const fmtTris = (tris) => tris >= 1e5
+  ? `${(tris / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} mil. trojúhelníků`
+  : `${tris.toLocaleString('cs-CZ')} trojúhelníků`;
+const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == null || m.size === size));
+
 const PHASES = { download: 'Stahuji', parse: 'Čtu soubor', geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu' };
+const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
 onProgress = (d) => {
   const pct = d.phase === 'geometry' ? d.value : d.phase === 'structure' ? 1 : 0;
   dropState('loading', pct);
-  setStatus(`${PHASES[d.phase]} ${modelName}${d.phase === 'geometry' ? ` – ${Math.round(d.value * 100)} %` : ''} …`);
+  setStatus(`${PHASES[d.phase]} ${modelName}${d.phase === 'geometry' ? ` – ${Math.round(d.value * 100)} %` : ''}${queueText()} …`);
 };
+
+function updateLoaded() {
+  ui.loaded.replaceChildren();
+  for (const m of loaded) {
+    const li = document.createElement('li');
+    li.title = `${m.name} – ${fmtSize(m.size)}, ${plural(m.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(m.tris)}`;
+    li.innerHTML = '<span class="model__name"></span><span class="model__size"></span>'
+      + '<button class="ebc-icon-btn model__remove" title="Odebrat model"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-delete"/></svg></button>';
+    li.children[0].textContent = m.name;
+    li.children[1].textContent = fmtSize(m.size);
+    li.querySelector('button').addEventListener('click', () => removeModel(m.modelID));
+    ui.loaded.appendChild(li);
+  }
+  ui.loadedSec.hidden = !loaded.length;
+  ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
+  const label = loaded.length === 1 ? loaded[0].name : loaded.length ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
+  xr.panel.set({ modelName: label });
+  document.title = label ? `IFC VR – ${label}` : 'IFC VR';
+  ui.dropTitle.textContent = loaded.length ? 'Přidejte další soubory IFC' : 'Přetáhněte soubory IFC sem';
+  for (const li of ui.models.children) {
+    if (isLoaded(li.dataset.name)) li.setAttribute('aria-selected', 'true'); else li.removeAttribute('aria-selected');
+  }
+  updateXRButtons();
+}
+
+async function removeModel(modelID) {
+  if (loading) return;
+  const i = loaded.findIndex((m) => m.modelID === modelID);
+  if (i < 0) return;
+  const [m] = loaded.splice(i, 1);
+  if (viewer.selectedId?.model === modelID) select(null);
+  viewer.removeModel(modelID);
+  try { await call('close', { modelID }); } catch (e) { console.warn(e); }
+  if (!loaded.length) { viewer.clear(); dropState(''); }
+  setStatus(`Model ${m.name} je odebraný.`);
+  updateLoaded();
+}
 
 async function loadBuffer(buffer, name) {
   modelName = name;
   const t0 = performance.now();
   loading = true;
   ui.btnVR.disabled = ui.btnAR.disabled = true;
-  select(null);
   try {
     await ready;
     const size = buffer.byteLength;
     const res = await call('load', { buffer }, [buffer]);
-    viewer.setModel(res.buckets);
-    xr.panel.set({ modelName: name, info: null });
+    viewer.addModel(res.modelID, res.buckets, true);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
+    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
-    const triText = tris >= 1e5
-      ? `${(tris / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 2 })} mil. trojúhelníků`
-      : `${tris.toLocaleString('cs-CZ')} trojúhelníků`;
-    setStatus(`Načteno: ${name} (${fmtSize(size)}, ${res.elements.toLocaleString('cs-CZ')} prvků, ${triText}, ${s} s).`, 'success');
+    if (!res.aligned) notes.push(name);
+    setStatus(`Načteno: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
+      + (res.aligned ? '' : ` ${MISALIGNED}`), res.aligned ? 'success' : '');
     dropState('loaded');
-    ui.dropTitle.textContent = name;
-    document.title = `IFC VR – ${name}`;
+    return true;
   } catch (err) {
     console.error(err);
     dropState('error');
     setStatus(`Soubor ${name} nejde načíst: ${err.message} Zkontrolujte, že jde o platný soubor IFC.`, 'error');
+    return false;
   } finally {
     loading = false;
-    updateXRButtons();
+    updateLoaded();
   }
 }
 
-async function loadFile(file) {
-  if (loading) return;
+async function readFile(file) {
   if (!file.name.toLowerCase().endsWith('.ifc')) {
     dropState('error');
     setStatus(`Soubor ${file.name} není IFC. Vyberte soubor s příponou .ifc.`, 'error');
-    return;
+    return false;
+  }
+  if (isLoaded(file.name, file.size)) {
+    setStatus(`Model ${file.name} už je načtený.`);
+    return true;
   }
   modelName = file.name;
-  setStatus(`Čtu soubor ${file.name} …`);
+  setStatus(`Čtu soubor ${file.name}${queueText()} …`);
   dropState('loading', 0);
-  await loadBuffer(await file.arrayBuffer(), file.name);
+  return loadBuffer(await file.arrayBuffer(), file.name);
 }
 
-async function loadUrl(url, name) {
-  if (loading) return;
+async function readUrl(url, name) {
+  if (isLoaded(name)) { setStatus(`Model ${name} už je načtený.`); return true; }
   modelName = name;
   dropState('loading', 0);
   try {
@@ -135,26 +189,50 @@ async function loadUrl(url, name) {
       if (done) break;
       chunks.push(value);
       got += value.length;
-      setStatus(`Stahuji ${name} – ${total ? Math.round((got / total) * 100) + ' %' : fmtSize(got)} …`);
+      setStatus(`Stahuji ${name} – ${total ? Math.round((got / total) * 100) + ' %' : fmtSize(got)}${queueText()} …`);
     }
     const buf = new Uint8Array(got);
     let o = 0;
     for (const c of chunks) { buf.set(c, o); o += c.length; }
-    await loadBuffer(buf.buffer, name);
+    return loadBuffer(buf.buffer, name);
   } catch (err) {
     dropState('error');
     setStatus(`Model ${name} nejde stáhnout: ${err.message}`, 'error');
+    return false;
   }
 }
 
-ui.file.addEventListener('change', () => { const f = ui.file.files[0]; if (f) loadFile(f); ui.file.value = ''; });
-ui.drop.addEventListener('dragover', (e) => { e.preventDefault(); ui.drop.classList.add('is-dragover'); ui.dropTitle.textContent = 'Vložte soubor'; });
-ui.drop.addEventListener('dragleave', () => { ui.drop.classList.remove('is-dragover'); ui.dropTitle.textContent = modelName || 'Přetáhněte soubor IFC sem'; });
+/** Soubory se načítají postupně za sebou; chyba jednoho nezastaví ostatní. */
+let running = false;
+async function enqueue(jobs) {
+  queue.push(...jobs);
+  if (running) return;
+  running = true;
+  let ok = 0, fail = 0;
+  notes.length = 0;
+  while (queue.length) {
+    const job = queue.shift();
+    if (await job()) ok++; else fail++;
+  }
+  running = false;
+  if (ok + fail > 1) {
+    setStatus(fail
+      ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst.`
+      : `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, celkem ${plural(loaded.length, 'model', 'modely', 'modelů')}.`
+        + (notes.length ? ` ${notes.join(', ')}: ${MISALIGNED}` : ''), fail ? 'error' : notes.length ? '' : 'success');
+  }
+}
+const loadFiles = (files) => enqueue([...files].map((f) => () => readFile(f)));
+const loadUrl = (url, name) => enqueue([() => readUrl(url, name)]);
+
+ui.file.addEventListener('change', () => { loadFiles(ui.file.files); ui.file.value = ''; });
+ui.drop.addEventListener('dragover', (e) => { e.preventDefault(); ui.drop.classList.add('is-dragover'); ui.dropTitle.textContent = 'Vložte soubory'; });
+ui.drop.addEventListener('dragleave', () => { ui.drop.classList.remove('is-dragover'); updateLoaded(); });
 ui.drop.addEventListener('drop', (e) => {
   e.preventDefault();
   ui.drop.classList.remove('is-dragover');
-  const f = e.dataTransfer.files[0];
-  if (f) loadFile(f);
+  updateLoaded();
+  if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
 });
 
 // seznam modelů ze složky models/ (jen když běží dev server)
@@ -167,41 +245,43 @@ async function listModels() {
     for (const f of files) {
       const li = document.createElement('li');
       li.tabIndex = 0;
-      li.title = `Načíst ${f.name}`;
+      li.dataset.name = f.name;
+      li.title = `Přidat ${f.name}`;
       li.innerHTML = '<span class="model__name"></span><span class="model__size"></span>';
       li.children[0].textContent = f.name;
       li.children[1].textContent = fmtSize(f.size);
-      const go = () => {
-        for (const x of ui.models.children) x.removeAttribute('aria-selected');
-        li.setAttribute('aria-selected', 'true');
-        loadUrl(`models/${encodeURIComponent(f.name)}`, f.name);
-      };
+      const go = () => loadUrl(`models/${encodeURIComponent(f.name)}`, f.name);
       li.addEventListener('click', go);
       li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       ui.models.appendChild(li);
     }
     ui.modelsSec.hidden = !files.length;
+    updateLoaded();
   } catch { /* statický hosting bez seznamu */ }
 }
 listModels();
 
-const param = new URLSearchParams(location.search).get('model');
-if (param) loadUrl(param, decodeURIComponent(param.split('/').pop()));
+// ?model=a.ifc&model=b.ifc
+for (const param of new URLSearchParams(location.search).getAll('model')) {
+  loadUrl(param, decodeURIComponent(param.split('/').pop()));
+}
 
 // ---------- výběr prvku ----------
 let selectSeq = 0;
-async function select(id) {
+/** Výběr prvku { model, id } nebo null. */
+async function select(ref) {
   const my = ++selectSeq;
-  viewer.setHighlight(id);
-  if (id == null) {
+  viewer.setHighlight(ref);
+  if (ref == null) {
     ui.info.innerHTML = '<p class="ebc-small ebc-caption">Klikněte na prvek v modelu.</p>';
     ui.infoSummary.textContent = '';
     xr.panel.set({ info: null });
     return;
   }
   let info;
-  try { info = await call('props', { expressID: id }); } catch (e) { console.warn(e); return; }
+  try { info = await call('props', { modelID: ref.model, expressID: ref.id }); } catch (e) { console.warn(e); return; }
   if (my !== selectSeq || !info) return;
+  if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
   xr.panel.set({ info });
   renderInfo(info);
 }
@@ -231,6 +311,7 @@ function renderInfo(info) {
     else { const b = document.createElement('td'); b.textContent = v; tr.appendChild(b); }
     tb.appendChild(tr);
   };
+  if (info.model) row('Model', info.model);
   if (info.objectType) row('Typ objektu', info.objectType);
   row('GlobalId', info.globalId);
   for (const s of info.sets) {
@@ -294,7 +375,7 @@ async function enterXR(mode) {
 ui.btnVR.addEventListener('click', () => enterXR('immersive-vr'));
 ui.btnAR.addEventListener('click', () => enterXR('immersive-ar'));
 
-setStatus('Vyberte model IFC.');
+setStatus('Vyberte jeden nebo více souborů IFC.');
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select };
 
