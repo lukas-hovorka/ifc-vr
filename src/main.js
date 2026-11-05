@@ -1,6 +1,7 @@
 import { Viewer } from './viewer.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
+import { t } from './theme.js';
 
 // ---------- worker ----------
 const worker = new Worker(new URL('./ifc-worker.js', import.meta.url), { type: 'module' });
@@ -69,8 +70,11 @@ $('btn-collapse').addEventListener('click', (e) => {
 
 // ---------- načtení ----------
 // Modelů může být víc (profese stavby); zobrazí se spolu v souřadnicích prvního.
-/** @type {{ modelID:number, name:string, size:number, elements:number, tris:number }[]} */
+/** @type {{ modelID:number, name:string, size:number, elements:number, tris:number, visible:boolean, color:number }[]} */
 const loaded = [];
+/** Barvy pro přebarvení modelu (kategorie z EBC_UI_vibe); color 0 = původní barvy z IFC. */
+const MODEL_COLORS = [1, 2, 3, 4, 5, 6].map((i) => t(`color.data.category-${i}`));
+const colorName = (c) => (c ? `barva ${c}` : 'původní barvy z IFC');
 const queue = [];
 /** Modely, které nesedí na souřadnice prvního (jiný souřadnicový systém). */
 const notes = [];
@@ -94,14 +98,28 @@ function updateLoaded() {
   ui.loaded.replaceChildren();
   for (const m of loaded) {
     const li = document.createElement('li');
+    li.classList.toggle('is-hidden', !m.visible);
     li.title = `${m.name} – ${fmtSize(m.size)}, ${plural(m.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(m.tris)}`;
-    li.innerHTML = '<span class="model__name"></span><span class="model__size"></span>'
+    li.innerHTML = '<label class="ebc-choice model__toggle"><input type="checkbox"><span class="model__name"></span></label>'
+      + '<button class="model__color"></button><span class="model__size"></span>'
       + '<button class="ebc-icon-btn model__remove" title="Odebrat model"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-delete"/></svg></button>';
-    li.children[0].textContent = m.name;
-    li.children[1].textContent = fmtSize(m.size);
-    li.querySelector('button').addEventListener('click', () => removeModel(m.modelID));
+    const check = li.querySelector('input');
+    check.checked = m.visible;
+    check.title = m.visible ? 'Skrýt model' : 'Zobrazit model';
+    check.addEventListener('change', () => setVisible(m.modelID, check.checked));
+    li.querySelector('.model__name').textContent = m.name;
+    const sw = li.querySelector('.model__color');
+    sw.title = `Barva modelu: ${colorName(m.color)}. Kliknutím změníte.`;
+    sw.classList.toggle('is-original', !m.color);
+    if (m.color) sw.style.setProperty('--swatch', `var(--ebc-color-data-category-${m.color})`);
+    sw.addEventListener('click', () => cycleColor(m.modelID));
+    li.querySelector('.model__size').textContent = fmtSize(m.size);
+    li.querySelector('.model__remove').addEventListener('click', () => removeModel(m.modelID));
     ui.loaded.appendChild(li);
   }
+  xr.panel.set({
+    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color ? MODEL_COLORS[m.color - 1] : null })),
+  });
   ui.loadedSec.hidden = !loaded.length;
   ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
   const label = loaded.length === 1 ? loaded[0].name : loaded.length ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
@@ -113,6 +131,36 @@ function updateLoaded() {
   }
   updateXRButtons();
 }
+
+function setVisible(modelID, on) {
+  const m = loaded.find((x) => x.modelID === modelID);
+  if (!m) return;
+  m.visible = on;
+  if (!on && viewer.selectedId?.model === modelID) select(null);
+  viewer.setModelVisible(modelID, on);
+  updateLoaded();
+}
+
+/** Původní → barva 1 … 6 → původní. */
+function cycleColor(modelID) {
+  const m = loaded.find((x) => x.modelID === modelID);
+  if (!m) return;
+  m.color = (m.color + 1) % (MODEL_COLORS.length + 1);
+  viewer.setModelColor(modelID, m.color ? MODEL_COLORS[m.color - 1] : null);
+  updateLoaded();
+}
+
+xr.panel.onModel = (op, modelID) => {
+  if (op === 'vis') setVisible(modelID, !loaded.find((x) => x.modelID === modelID)?.visible);
+  else if (op === 'col') cycleColor(modelID);
+  else if (op === 'del') removeModel(modelID);
+};
+// výběr souboru jde otevřít jen mimo VR: otevře se výběr a VR se ukončí
+xr.panel.actions.add = () => {
+  try { ui.file.click(); } catch { /* bez aktivace uživatelem */ }
+  viewer.renderer.xr.getSession()?.end();
+  setStatus('Vyberte další soubory IFC. Když se výběr neotevře, klepněte na drop zónu.');
+};
 
 async function removeModel(modelID) {
   if (loading) return;
@@ -139,7 +187,7 @@ async function loadBuffer(buffer, name) {
     viewer.addModel(res.modelID, res.buckets, true);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
-    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris });
+    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: 0 });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
     if (!res.aligned) notes.push(name);
     setStatus(`Načteno: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`

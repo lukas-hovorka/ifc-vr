@@ -5,7 +5,10 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 
 - načtení IFC přetažením, výběrem souboru, ze složky `models/` nebo přes `?model=a.ifc&model=b.ifc`
 - **více modelů najednou** (např. profese stavby): sedí na sebe podle souřadnic prvního modelu; model se
-  souřadnicemi dál než 10 km se umístí do počátku. Načtené modely jde jednotlivě odebrat.
+  souřadnicemi dál než 10 km se umístí do počátku. Načtené modely jde jednotlivě skrýt, přebarvit jednou
+  barvou (kolečko vedle názvu, opakovaným klepnutím se střídají barvy a původní barvy z IFC) a odebrat –
+  na počítači v panelu vlevo, ve VR na záložce **Modely** panelu u levé ruky (tam i *Přidat soubor*,
+  které ukončí VR a otevře výběr souborů)
 - **VR 1:1**: procházení modelem ve skutečné velikosti (teleport, chůze, let nahoru/dolů)
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
@@ -92,3 +95,7 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 
 - IfcSpace a otvory se nezobrazují.
 - Velké modely (stovky MB, miliony trojúhelníků) mohou být v brýlích pomalé – vyexportujte jen potřebné profese.
+
+## Kontakt
+
+Lukáš Hovorka – <lukas.hovorka@energy-benefit.cz>

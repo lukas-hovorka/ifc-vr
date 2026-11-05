@@ -118,6 +118,7 @@ export class Viewer {
         side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(g, mat);
+      mesh.userData.origColor = mat.color.clone();
       mesh.userData.ranges = b.ranges;
       mesh.userData.modelID = modelID;
       mesh.renderOrder = transparent ? 1 : 0;
@@ -128,6 +129,22 @@ export class Viewer {
     this.updateBounds();
     if (fit) this.fitView();
   }
+
+  /** Skryje / zobrazí model (skrytý se nedá vybrat ani na něj teleportovat). */
+  setModelVisible(modelID, on) {
+    if (!on && this.selectedId?.model === modelID) this.clearHighlight();
+    for (const m of this.meshes) if (m.userData.modelID === modelID) m.visible = on;
+  }
+
+  /** Přebarví celý model jednou barvou (CSS barva), null = původní barvy z IFC. */
+  setModelColor(modelID, color) {
+    const c = color ? new THREE.Color(color) : null;
+    for (const m of this.meshes) {
+      if (m.userData.modelID === modelID) m.material.color.copy(c || m.userData.origColor);
+    }
+  }
+
+  get visibleMeshes() { return this.meshes.filter((m) => m.visible); }
 
   removeModel(modelID) {
     if (this.selectedId?.model === modelID) this.clearHighlight();
@@ -191,7 +208,7 @@ export class Viewer {
 
   /** Průsečík paprsku s modelem: { point, distance, face, id } nebo null. */
   intersect(raycaster) {
-    const hits = raycaster.intersectObjects(this.meshes, false);
+    const hits = raycaster.intersectObjects(this.visibleMeshes, false);
     if (!hits.length) return null;
     hits.sort((a, b) => a.distance - b.distance);
     const h = hits[0];

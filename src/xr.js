@@ -287,7 +287,7 @@ export class XRControls {
     const vel = this.raycaster.ray.direction.clone().multiplyScalar(ARC_SPEED);
     const g = new THREE.Vector3(0, -9.8, 0);
     const pos = this.arc.geometry.attributes.position;
-    const targets = this.mode === 'full' ? [...this.v.meshes, this.v.ground] : [this.v.ground];
+    const targets = this.mode === 'full' ? [...this.v.visibleMeshes, this.v.ground] : [this.v.ground];
     const dt = 0.04;
     let p = o.clone();
     let hit = null;

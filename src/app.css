@@ -42,6 +42,23 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .model-list .model__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-list .model__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; }
 .side__count { color: var(--ebc-color-text-secondary); text-transform: none; }
+.side__contact { margin: 0; color: var(--ebc-color-text-secondary); }
+
+/* načtené modely: zapnout/vypnout, barva, odebrat */
+.model__toggle { flex: 1; min-width: 0; }
+.model-list > li.is-hidden .model__name { color: var(--ebc-color-text-secondary); }
+.model__color {
+  flex: none; padding: 0; cursor: pointer;
+  width: var(--ebc-size-check); height: var(--ebc-size-check); border-radius: 50%;
+  border: var(--ebc-border-width-medium) solid var(--ebc-color-border-default);
+  background: var(--swatch);
+}
+.model__color:hover { border-color: var(--ebc-color-accent-default); }
+/* původní barvy z IFC: kolečko ze všech barev palety */
+.model__color.is-original {
+  background: conic-gradient(var(--ebc-color-data-category-1), var(--ebc-color-data-category-2), var(--ebc-color-data-category-3),
+    var(--ebc-color-data-category-4), var(--ebc-color-data-category-5), var(--ebc-color-data-category-6), var(--ebc-color-data-category-1));
+}
 
 .info__name { font: var(--ebc-typography-subtitle); margin: 0; overflow-wrap: anywhere; }
 .info__sub { margin: 0; color: var(--ebc-color-text-secondary); }
