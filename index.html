@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="cs" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IFC VR</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./src/ebc/ebc-tokens.css">
+  <link rel="stylesheet" href="./src/ebc/ebc-components.css">
+  <link rel="stylesheet" href="./src/app.css">
+</head>
+<body class="ebc">
+  <div id="viewport" class="viewport ebc-surface-tech"></div>
+
+  <aside class="side" id="side">
+    <header class="side__head">
+      <h1 class="ebc-app-title"><span class="ebc-app-title__accent">ifc</span>.vr</h1>
+      <button class="ebc-icon-btn side__collapse" id="btn-collapse" title="Sbalit panel" aria-expanded="true">
+        <svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-chevron-up"/></svg>
+      </button>
+    </header>
+
+    <div class="side__body" id="side-body">
+      <label class="ebc-dropzone side__drop" id="drop">
+        <input type="file" id="file" accept=".ifc" hidden>
+        <span class="ebc-dropzone__progress" id="drop-progress" style="width:0"></span>
+        <svg class="ebc-icon ebc-dropzone__icon" id="drop-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-ifc"/></svg>
+        <span class="ebc-dropzone__title" id="drop-title">Přetáhněte soubor IFC sem</span>
+        <span class="ebc-dropzone__hint">nebo vyberte kliknutím</span>
+      </label>
+
+      <section class="side__section" id="models-sec" hidden>
+        <h2 class="ebc-group-label">Modely ve složce models</h2>
+        <ul class="ebc-list ebc-list--accent" id="models"></ul>
+      </section>
+
+      <p class="ebc-small side__status" id="status" aria-live="polite"></p>
+
+      <div class="side__actions">
+        <button class="ebc-btn" id="btn-ar" disabled>Vstoupit do AR</button>
+        <button class="ebc-btn ebc-btn--primary" id="btn-vr" disabled>Vstoupit do VR</button>
+      </div>
+
+      <details class="ebc-expander" id="info-sec" open>
+        <summary class="ebc-expander__header"><span>Vybraný prvek</span><span class="ebc-expander__summary" id="info-summary"></span></summary>
+        <div class="ebc-expander__body" id="info"><p class="ebc-small ebc-caption">Klikněte na prvek v modelu.</p></div>
+      </details>
+
+      <details class="ebc-expander">
+        <summary class="ebc-expander__header"><span>Ovládání ve VR</span><span class="ebc-expander__summary">Meta Quest 3</span></summary>
+        <div class="ebc-expander__body">
+          <div class="ebc-table-wrap"><table class="ebc-table"><tbody id="help"></tbody></table></div>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
