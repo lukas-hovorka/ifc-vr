@@ -96,6 +96,9 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 - IfcSpace a otvory se nezobrazují.
 - U prvků s víc než 100 otvory (typicky stropní deska s prostupy) se otvory nevyřezávají – web-ifc je odečítá
   po jednom a takový prvek by se počítal desítky minut. Aplikace na to po načtení upozorní.
+- Jedna instance web-ifc má paměť nejvýš 4 GB (zhruba 1,5–2 GB souborů IFC). Když se do ní další model
+  nevejde, založí se nová, takže na počítači jde načíst celou stavbu (ověřeno: 39 profesí, 3,3 GB). V brýlích
+  je paměti mnohem méně.
 - Velké modely (stovky MB, miliony trojúhelníků) mohou být v brýlích pomalé – vyexportujte jen potřebné profese.
 
 ## Kontakt

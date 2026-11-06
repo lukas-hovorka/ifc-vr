@@ -3,10 +3,15 @@
 // (např. profese stavby): všechny se umístí do souřadnic prvního načteného modelu.
 import * as WebIFC from 'web-ifc';
 
-const api = new WebIFC.IfcAPI();
+/** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
+ * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
+const apis = [];
+let wasmPath = '';
 let ready = null;
-/** modelID → { parentOf, storeyNames }: rodič prvku (podlaží, prostor, celek) a názvy podlaží */
+/** modelID → { api, local, parentOf, storeyNames }: instance a číslo modelu v ní, rodič prvku
+ * (podlaží, prostor, celek) a názvy podlaží. modelID je číslo v rámci workeru, ne instance. */
 const models = new Map();
+let nextID = 0;
 /** Matice posunu k počátku prvního modelu; další modely se k ní vztahují. */
 let refMatrix = null;
 
@@ -25,14 +30,38 @@ class Grow {
 
 const progress = (phase, value) => self.postMessage({ type: 'progress', phase, value });
 
-function init(wasmPath) {
-  if (!ready) {
-    api.SetWasmPath(wasmPath, true);
-    ready = api.Init(undefined, true).then(() => api.SetLogLevel?.(WebIFC.LogLevel.LOG_LEVEL_OFF));
-  }
+async function newApi() {
+  const a = new WebIFC.IfcAPI();
+  a.SetWasmPath(wasmPath, true);
+  await a.Init(undefined, true);
+  a.SetLogLevel?.(WebIFC.LogLevel.LOG_LEVEL_OFF);
+  a.open = 0; // počet otevřených modelů
+  apis.push(a);
+  return a;
+}
+
+function init(path) {
+  if (!ready) { wasmPath = path; ready = newApi(); }
   return ready;
 }
 
+const GB = 2 ** 30;
+const HEAP_LIMIT = 4 * GB;
+const heapOf = (a) => a.wasmModule?.HEAPU8?.length ?? 0;
+/** Odhad, kolik paměti WASM model při načtení zabere navíc (změřeno na modelech 0,5–0,8 GB). */
+const needFor = (bytes) => 1.6 * bytes + 0.25 * GB;
+
+/** Instance pro další model: poslední, pokud se do ní podle odhadu vejde, jinak nová. */
+async function apiFor(bytes) {
+  const a = apis[apis.length - 1];
+  if (!a.open || heapOf(a) + needFor(bytes) < HEAP_LIMIT * 0.92) return a;
+  return newApi();
+}
+
+/** Výjimka z WASM (typicky došlá paměť) nemá text; převede se na srozumitelnou zprávu. */
+const memoryError = () => new Error('Na model nezbývá paměť. Odeberte některé načtené modely, nebo načtěte menší soubor.');
+
+let api = null; // instance, se kterou právě pracuje load() a pomocné funkce
 function idsOfType(modelID, type) {
   const out = [];
   const v = api.GetLineIDsWithType(modelID, type, true);
@@ -95,12 +124,42 @@ function dropHeavyOpenings(modelID) {
 const isIdentity = (m) => m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
 
 async function load(buffer) {
+  const first = await apiFor(buffer.byteLength);
+  try {
+    return loadIn(first, buffer);
+  } catch (e) {
+    // plná instance: zkusit ještě jednou v nové (jen pokud v té plné už nějaký model byl)
+    if (!first.open) { dropEmpty(); throw e instanceof Error ? e : memoryError(); }
+    const fresh = await newApi();
+    try { return loadIn(fresh, buffer); } catch (e2) { dropEmpty(); throw e2 instanceof Error ? e2 : memoryError(); }
+  }
+}
+
+/** Uvolní prázdné instance kromě první (paměť WASM se jinak nevrací). */
+function dropEmpty() {
+  for (let i = apis.length - 1; i > 0; i--) if (!apis[i].open) apis.splice(i, 1);
+}
+
+function loadIn(a, buffer) {
+  api = a;
   progress('parse', 0);
-  const modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
-  if (modelID < 0) throw new Error('Soubor se nepodařilo otevřít jako IFC.');
+  let modelID = -1;
+  try {
+    modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
+    if (modelID < 0) throw new Error('Soubor se nepodařilo otevřít jako IFC.');
+    const res = build(modelID);
+    api.open++;
+    return res;
+  } catch (e) {
+    if (modelID >= 0) try { api.CloseModel(modelID); } catch { /* instance je rozbitá */ }
+    throw e;
+  }
+}
+
+function build(modelID) {
   const parentOf = new Map();
   const storeyNames = new Map();
-  models.set(modelID, { parentOf, storeyNames });
+  const gid = nextID++;
   const schema = api.GetModelSchema(modelID);
 
   const skip = new Set([...idsOfType(modelID, WebIFC.IFCSPACE), ...idsOfType(modelID, WebIFC.IFCOPENINGELEMENT)]);
@@ -232,7 +291,8 @@ async function load(buffer) {
     transfer.push(item.position.buffer, item.normal.buffer, item.index.buffer, item.ranges.buffer);
     out.push(item);
   }
-  return { result: { modelID, schema, elements, aligned, simplified, buckets: out }, transfer };
+  models.set(gid, { api, local: modelID, parentOf, storeyNames });
+  return { result: { modelID: gid, schema, elements, aligned, simplified, buckets: out }, transfer };
 }
 
 const fmtNum = (n) => {
@@ -252,17 +312,20 @@ function fmt(v) {
 }
 
 function close(modelID) {
-  if (!models.has(modelID)) return;
-  api.CloseModel(modelID);
+  const m = models.get(modelID);
+  if (!m) return;
+  m.api.CloseModel(m.local);
+  m.api.open--;
   models.delete(modelID);
+  dropEmpty();
   if (!models.size) refMatrix = null;
 }
 
 async function props(modelID, id) {
   const m = models.get(modelID);
   if (!m) return null;
-  const { parentOf, storeyNames } = m;
-  const line = api.GetLine(modelID, id);
+  const { api, local, parentOf, storeyNames } = m;
+  const line = api.GetLine(local, id);
   let storey = id;
   for (let i = 0; i < 32 && storey != null && !storeyNames.has(storey); i++) storey = parentOf.get(storey);
   const out = {
@@ -279,7 +342,7 @@ async function props(modelID, id) {
   const psets = [];
   for (const withType of [false, true]) {
     try {
-      const all = await api.properties.getPropertySets(modelID, id, true, withType);
+      const all = await api.properties.getPropertySets(local, id, true, withType);
       for (const ps of all) if (!psets.some((p) => p.expressID === ps.expressID)) psets.push(ps);
     } catch { /* typ bez vlastností */ }
   }

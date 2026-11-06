@@ -300,7 +300,9 @@ async function loadBuffer(buffer, name) {
   } catch (err) {
     console.error(err);
     dropState('error');
-    setStatus(`Soubor ${name} nejde načíst: ${err.message} Zkontrolujte, že jde o platný soubor IFC.`, 'error');
+    lastError = err.message;
+    setStatus(`Soubor ${name} nejde načíst: ${err.message}`
+      + (/paměť/.test(err.message) ? '' : ' Zkontrolujte, že jde o platný soubor IFC.'), 'error');
     return false;
   } finally {
     loading = false;
@@ -377,19 +379,22 @@ async function readUrl(url, name) {
 
 /** Soubory se načítají postupně za sebou; chyba jednoho nezastaví ostatní. */
 let running = false;
+let lastError = ''; // poslední chyba zpracování, do souhrnu dávky
 async function enqueue(jobs) {
   queue.push(...jobs);
   batch.total += jobs.length;
   if (running) return;
   running = true;
-  let ok = 0, fail = 0;
+  let ok = 0;
+  const failed = [];
   notes.length = 0;
+  lastError = '';
   try {
     while (queue.length) {
-      const job = queue.shift();
+      const { name, run } = queue.shift();
       let res = false;
-      try { res = await job(); } catch (err) { console.error(err); dropState('error'); }
-      if (res) ok++; else fail++;
+      try { res = await run(); } catch (err) { console.error(err); dropState('error'); }
+      if (res) ok++; else failed.push(name);
       batch.done++;
     }
   } finally {
@@ -398,15 +403,18 @@ async function enqueue(jobs) {
     batch.done = batch.total = 0;
     hideProgress();
   }
+  const fail = failed.length;
   if (ok + fail > 1) {
+    const list = failed.slice(0, 5).join(', ') + (fail > 5 ? ` a ${fail - 5} další` : '');
     setStatus(fail
-      ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst.`
+      ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst: ${list}.`
+        + (lastError ? ` ${lastError}` : '')
       : `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, celkem ${plural(loaded.length, 'model', 'modely', 'modelů')}.`
         + (notes.length ? ` ${notes.join(' ')}` : ''), fail ? 'error' : notes.length ? '' : 'success');
   }
 }
-const loadFiles = (files) => enqueue([...files].map((f) => () => readFile(f)));
-const loadUrl = (url, name) => enqueue([() => readUrl(url, name)]);
+const loadFiles = (files) => enqueue([...files].map((f) => ({ name: f.name, run: () => readFile(f) })));
+const loadUrl = (url, name) => enqueue([{ name, run: () => readUrl(url, name) }]);
 
 ui.file.addEventListener('change', () => { loadFiles(ui.file.files); ui.file.value = ''; });
 ui.drop.addEventListener('dragover', (e) => { e.preventDefault(); ui.drop.classList.add('is-dragover'); ui.dropTitle.textContent = 'Vložte soubory'; });
