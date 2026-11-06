@@ -69,6 +69,16 @@
     </div>
   </aside>
 
+  <!-- nabídka barvy modelu -->
+  <div class="ebc-menu color-menu" id="color-menu" role="menu" aria-label="Barva modelu" hidden>
+    <p class="ebc-small color-menu__label">Barva modelu</p>
+    <div class="color-menu__palette" id="color-palette"></div>
+    <div class="ebc-menu__sep"></div>
+    <button class="ebc-menu__item" data-act="custom" role="menuitemradio"><span class="model__color"></span><span>Vlastní barva…</span><span></span></button>
+    <button class="ebc-menu__item" data-act="orig" role="menuitemradio"><span class="model__color is-original"></span><span>Původní barvy z IFC</span><span></span></button>
+  </div>
+  <input type="color" class="color-input" id="color-input" tabindex="-1" aria-hidden="true">
+
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

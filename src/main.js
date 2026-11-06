@@ -84,7 +84,10 @@ $('btn-collapse').addEventListener('click', (e) => {
 const loaded = [];
 /** Barvy pro přebarvení modelu (kategorie z EBC_UI_vibe); color 0 = původní barvy z IFC. */
 const MODEL_COLORS = [1, 2, 3, 4, 5, 6].map((i) => t(`color.data.category-${i}`));
-const colorName = (c) => (c ? `barva ${c}` : 'původní barvy z IFC');
+// barva modelu: null = původní z IFC, 1–6 = barva palety, '#rrggbb' = vlastní barva uživatele
+const colorHex = (c) => (c == null ? null : typeof c === 'number' ? MODEL_COLORS[c - 1] : c);
+const colorCss = (c) => (c == null ? '' : typeof c === 'number' ? `var(--ebc-color-data-category-${c})` : c);
+const colorName = (c) => (c == null ? 'původní barvy z IFC' : typeof c === 'number' ? `barva ${c} z palety` : `vlastní ${c.toUpperCase()}`);
 const queue = [];
 /** Modely, které nesedí na souřadnice prvního (jiný souřadnicový systém). */
 const notes = [];
@@ -142,15 +145,16 @@ function updateLoaded() {
     li.querySelector('.model__name').textContent = m.name;
     const sw = li.querySelector('.model__color');
     sw.title = `Barva modelu: ${colorName(m.color)}. Kliknutím změníte.`;
-    sw.classList.toggle('is-original', !m.color);
-    if (m.color) sw.style.setProperty('--swatch', `var(--ebc-color-data-category-${m.color})`);
-    sw.addEventListener('click', () => cycleColor(m.modelID));
+    sw.setAttribute('aria-haspopup', 'menu');
+    sw.classList.toggle('is-original', m.color == null);
+    if (m.color != null) sw.style.setProperty('--swatch', colorCss(m.color));
+    sw.addEventListener('click', (e) => { e.stopPropagation(); openColorMenu(m.modelID, sw); });
     li.querySelector('.model__size').textContent = fmtSize(m.size);
     li.querySelector('.model__remove').addEventListener('click', () => removeModel(m.modelID));
     ui.loaded.appendChild(li);
   }
   xr.panel.set({
-    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color ? MODEL_COLORS[m.color - 1] : null })),
+    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: colorHex(m.color) })),
   });
   ui.loadedSec.hidden = !loaded.length;
   ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
@@ -173,14 +177,78 @@ function setVisible(modelID, on) {
   updateLoaded();
 }
 
-/** Původní → barva 1 … 6 → původní. */
+function setColor(modelID, color) {
+  const m = loaded.find((x) => x.modelID === modelID);
+  if (!m) return;
+  m.color = color;
+  if (typeof color === 'string') m.custom = color;
+  viewer.setModelColor(modelID, colorHex(color));
+  updateLoaded();
+}
+
+/** VR (bez výběru barvy): původní → paleta 1 … 6 → vlastní (pokud byla zvolená) → původní. */
 function cycleColor(modelID) {
   const m = loaded.find((x) => x.modelID === modelID);
   if (!m) return;
-  m.color = (m.color + 1) % (MODEL_COLORS.length + 1);
-  viewer.setModelColor(modelID, m.color ? MODEL_COLORS[m.color - 1] : null);
-  updateLoaded();
+  const order = [null, 1, 2, 3, 4, 5, 6, ...(m.custom ? [m.custom] : [])];
+  const i = order.indexOf(m.color);
+  setColor(modelID, order[(i + 1) % order.length]);
 }
+
+// ---------- nabídka barvy modelu (paleta, vlastní barva, původní z IFC) ----------
+const colorMenu = $('color-menu');
+const colorInput = $('color-input');
+let colorFor = null;
+for (let i = 1; i <= MODEL_COLORS.length; i++) {
+  const b = document.createElement('button');
+  b.className = 'model__color';
+  b.dataset.color = String(i);
+  b.title = `Barva ${i} z palety`;
+  b.setAttribute('role', 'menuitemradio');
+  b.style.setProperty('--swatch', colorCss(i));
+  $('color-palette').appendChild(b);
+}
+
+function openColorMenu(modelID, anchor) {
+  const m = loaded.find((x) => x.modelID === modelID);
+  if (!m) return;
+  if (colorFor === modelID && !colorMenu.hidden) { closeColorMenu(); return; }
+  colorFor = modelID;
+  for (const b of colorMenu.querySelectorAll('[data-color]')) b.setAttribute('aria-checked', String(+b.dataset.color === m.color));
+  const own = colorMenu.querySelector('[data-act="custom"]');
+  own.setAttribute('aria-checked', String(typeof m.color === 'string'));
+  own.querySelector('.model__color').style.setProperty('--swatch', m.custom || 'transparent');
+  colorMenu.querySelector('[data-act="orig"]').setAttribute('aria-checked', String(m.color == null));
+  colorMenu.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = colorMenu.offsetWidth, h = colorMenu.offsetHeight;
+  colorMenu.style.left = `${Math.max(8, Math.min(r.right - w, innerWidth - w - 8))}px`;
+  colorMenu.style.top = `${r.bottom + 4 + h > innerHeight ? r.top - h - 4 : r.bottom + 4}px`;
+  // výběr barvy prohlížeče se otevře u kolečka
+  colorInput.style.left = `${r.left}px`;
+  colorInput.style.top = `${r.bottom}px`;
+  colorMenu.querySelector('[aria-checked="true"]')?.focus();
+}
+const closeColorMenu = () => { colorMenu.hidden = true; };
+
+colorMenu.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const b = e.target.closest('button');
+  if (!b || colorFor == null) return;
+  if (b.dataset.color) { setColor(colorFor, +b.dataset.color); closeColorMenu(); }
+  else if (b.dataset.act === 'orig') { setColor(colorFor, null); closeColorMenu(); }
+  else if (b.dataset.act === 'custom') {
+    const m = loaded.find((x) => x.modelID === colorFor);
+    colorInput.value = m?.custom || colorHex(m?.color) || MODEL_COLORS[0];
+    closeColorMenu();
+    colorInput.click();
+  }
+});
+// vlastní barva: náhled hned při posouvání ve výběru
+colorInput.addEventListener('input', () => { if (colorFor != null) setColor(colorFor, colorInput.value.toLowerCase()); });
+document.addEventListener('click', (e) => { if (!colorMenu.hidden && !colorMenu.contains(e.target)) closeColorMenu(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeColorMenu(); });
+ui.side.querySelector('.side__body').addEventListener('scroll', closeColorMenu);
 
 xr.panel.onModel = (op, modelID) => {
   if (op === 'vis') setVisible(modelID, !loaded.find((x) => x.modelID === modelID)?.visible);
@@ -219,7 +287,7 @@ async function loadBuffer(buffer, name) {
     viewer.addModel(res.modelID, res.buckets, true);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
-    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: 0 });
+    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: null, custom: null });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
     if (!res.aligned) notes.push(name);
     setStatus(`Načteno: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
