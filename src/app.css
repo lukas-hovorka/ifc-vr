@@ -44,6 +44,12 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .side__count { color: var(--ebc-color-text-secondary); text-transform: none; }
 .side__contact { margin: 0; color: var(--ebc-color-text-secondary); }
 
+/* průběh načítání: název souboru a pořadí, pruh, fáze */
+.side__progress-head { display: flex; align-items: baseline; gap: var(--ebc-space-8); font-size: var(--ebc-font-size-md); }
+.side__progress-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side__progress-phase { margin: 0; color: var(--ebc-color-text-secondary); }
+.side__progress .ebc-progress__bar { min-width: var(--ebc-space-40); transition: width .15s; }
+
 /* načtené modely: zapnout/vypnout, barva, odebrat */
 .model__toggle { flex: 1; min-width: 0; }
 .model-list > li.is-hidden .model__name { color: var(--ebc-color-text-secondary); }

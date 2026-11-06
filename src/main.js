@@ -29,6 +29,8 @@ const ui = {
   side: $('side'), drop: $('drop'), file: $('file'), dropTitle: $('drop-title'), dropProgress: $('drop-progress'),
   modelsSec: $('models-sec'), models: $('models'), status: $('status'),
   loadedSec: $('loaded-sec'), loaded: $('loaded'), loadedCount: $('loaded-count'),
+  progressSec: $('progress-sec'), progress: $('progress'), progressBar: $('progress-bar'),
+  progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
 };
 
@@ -86,12 +88,36 @@ const fmtTris = (tris) => tris >= 1e5
   : `${tris.toLocaleString('cs-CZ')} trojúhelníků`;
 const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == null || m.size === size));
 
-const PHASES = { download: 'Stahuji', parse: 'Čtu soubor', geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu' };
+// ---------- průběh ----------
+// Jeden pruh pro právě načítaný soubor (fáze mají pevné úseky), nad ním název a pořadí v dávce.
+const PHASES = {
+  read: 'Čtu soubor', download: 'Stahuji', parse: 'Otevírám model',
+  geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu',
+};
+const RANGES = {
+  file: { read: [0, 0.1], parse: [0.1, 0.2], geometry: [0.2, 0.95], structure: [0.95, 1] },
+  url: { download: [0, 0.4], parse: [0.4, 0.48], geometry: [0.48, 0.96], structure: [0.96, 1] },
+};
+const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
+
+function showProgress(phase, value = 0) {
+  const [a, b] = RANGES[batch.kind][phase] || [0, 1];
+  const pct = Math.round((a + (b - a) * Math.min(Math.max(value, 0), 1)) * 100);
+  ui.progressSec.hidden = false;
+  ui.progressName.textContent = modelName;
+  ui.progressCount.textContent = batch.total > 1 ? `soubor ${batch.done + 1} z ${batch.total}` : '';
+  ui.progressPhase.textContent = `${PHASES[phase]} …`;
+  ui.progressBar.style.width = `${pct}%`;
+  ui.progressBar.textContent = `${pct} %`;
+  ui.progress.setAttribute('aria-valuenow', String(pct));
+  dropState('loading', pct / 100);
+}
+const hideProgress = () => { ui.progressSec.hidden = true; };
+
 onProgress = (d) => {
-  const pct = d.phase === 'geometry' ? d.value : d.phase === 'structure' ? 1 : 0;
-  dropState('loading', pct);
-  setStatus(`${PHASES[d.phase]} ${modelName}${d.phase === 'geometry' ? ` – ${Math.round(d.value * 100)} %` : ''}${queueText()} …`);
+  showProgress(d.phase, d.value);
+  setStatus(`${PHASES[d.phase]} ${modelName}${queueText()} …`);
 };
 
 function updateLoaded() {
@@ -216,15 +242,36 @@ async function readFile(file) {
     return true;
   }
   modelName = file.name;
+  batch.kind = 'file';
   setStatus(`Čtu soubor ${file.name}${queueText()} …`);
-  dropState('loading', 0);
-  return loadBuffer(await file.arrayBuffer(), file.name);
+  showProgress('read', 0);
+  let buffer;
+  try {
+    buffer = await readWithProgress(file, (v) => showProgress('read', v));
+  } catch (err) {
+    dropState('error');
+    setStatus(`Soubor ${file.name} nejde přečíst: ${err.message}`, 'error');
+    return false;
+  }
+  return loadBuffer(buffer, file.name);
+}
+
+/** Přečte soubor z disku s průběhem (velké soubory v brýlích chvíli trvají). */
+function readWithProgress(file, onValue) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onprogress = (e) => { if (e.lengthComputable) onValue(e.loaded / e.total); };
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error || new Error('čtení selhalo.'));
+    r.readAsArrayBuffer(file);
+  });
 }
 
 async function readUrl(url, name) {
   if (isLoaded(name)) { setStatus(`Model ${name} už je načtený.`); return true; }
   modelName = name;
-  dropState('loading', 0);
+  batch.kind = 'url';
+  showProgress('download', 0);
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`server vrátil ${res.status}.`);
@@ -237,6 +284,7 @@ async function readUrl(url, name) {
       if (done) break;
       chunks.push(value);
       got += value.length;
+      if (total) showProgress('download', got / total);
       setStatus(`Stahuji ${name} – ${total ? Math.round((got / total) * 100) + ' %' : fmtSize(got)}${queueText()} …`);
     }
     const buf = new Uint8Array(got);
@@ -254,6 +302,7 @@ async function readUrl(url, name) {
 let running = false;
 async function enqueue(jobs) {
   queue.push(...jobs);
+  batch.total += jobs.length;
   if (running) return;
   running = true;
   let ok = 0, fail = 0;
@@ -261,8 +310,11 @@ async function enqueue(jobs) {
   while (queue.length) {
     const job = queue.shift();
     if (await job()) ok++; else fail++;
+    batch.done++;
   }
   running = false;
+  batch.done = batch.total = 0;
+  hideProgress();
   if (ok + fail > 1) {
     setStatus(fail
       ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst.`

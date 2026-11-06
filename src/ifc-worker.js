@@ -83,10 +83,15 @@ async function load(buffer) {
 
   const buckets = new Map();
   let elements = 0;
+  // průběh: web-ifc počítá index zvlášť pro každý typ prvku, proto vlastní počítadlo proti všem IfcProduct
+  const expected = Math.max(api.GetLineIDsWithType(modelID, WebIFC.IFCPRODUCT, true).size(), 1);
+  let streamed = 0;
   let lastPct = -1;
-  api.StreamAllMeshes(modelID, (mesh, index, total) => {
-    const pct = Math.floor((index / Math.max(total, 1)) * 100);
-    if (pct !== lastPct) { lastPct = pct; progress('geometry', index / Math.max(total, 1)); }
+  progress('geometry', 0);
+  api.StreamAllMeshes(modelID, (mesh) => {
+    const value = Math.min(++streamed / expected, 1);
+    const pct = Math.floor(value * 100);
+    if (pct !== lastPct) { lastPct = pct; progress('geometry', value); }
     const id = mesh.expressID;
     if (skip.has(id)) return;
     elements++;
