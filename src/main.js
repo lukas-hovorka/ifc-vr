@@ -16,6 +16,13 @@ worker.onmessage = (e) => {
   pending.delete(d.id);
   if (d.error) p.reject(new Error(d.error)); else p.resolve(d.result);
 };
+// pád workeru (např. málo paměti v brýlích): rozpracované požadavky skončí chybou, ne čekáním navždy
+const failAll = (msg) => {
+  for (const p of pending.values()) p.reject(new Error(msg));
+  pending.clear();
+};
+worker.onerror = (e) => { e.preventDefault?.(); failAll(`Zpracování selhalo${e.message ? ` (${e.message})` : ''}. Model může být na zařízení příliš velký.`); };
+worker.onmessageerror = () => failAll('Výsledek zpracování nejde přenést.');
 const call = (type, payload = {}, transfer = []) => new Promise((resolve, reject) => {
   const id = ++seq;
   pending.set(id, { resolve, reject });
@@ -304,14 +311,20 @@ async function enqueue(jobs) {
   running = true;
   let ok = 0, fail = 0;
   notes.length = 0;
-  while (queue.length) {
-    const job = queue.shift();
-    if (await job()) ok++; else fail++;
-    batch.done++;
+  try {
+    while (queue.length) {
+      const job = queue.shift();
+      let res = false;
+      try { res = await job(); } catch (err) { console.error(err); dropState('error'); }
+      if (res) ok++; else fail++;
+      batch.done++;
+    }
+  } finally {
+    // průběh zmizí vždy, i po chybě, a další soubory jde načíst
+    running = false;
+    batch.done = batch.total = 0;
+    hideProgress();
   }
-  running = false;
-  batch.done = batch.total = 0;
-  hideProgress();
   if (ok + fail > 1) {
     setStatus(fail
       ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst.`

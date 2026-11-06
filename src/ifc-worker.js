@@ -5,7 +5,7 @@ import * as WebIFC from 'web-ifc';
 
 const api = new WebIFC.IfcAPI();
 let ready = null;
-/** modelID → { storeyOf, storeyNames } */
+/** modelID → { parentOf, storeyNames }: rodič prvku (podlaží, prostor, celek) a názvy podlaží */
 const models = new Map();
 /** Matice posunu k počátku prvního modelu; další modely se k ní vztahují. */
 let refMatrix = null;
@@ -74,9 +74,9 @@ async function load(buffer) {
   progress('parse', 0);
   const modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
   if (modelID < 0) throw new Error('Soubor se nepodařilo otevřít jako IFC.');
-  const storeyOf = new Map();
+  const parentOf = new Map();
   const storeyNames = new Map();
-  models.set(modelID, { storeyOf, storeyNames });
+  models.set(modelID, { parentOf, storeyNames });
   const schema = api.GetModelSchema(modelID);
 
   const skip = new Set([...idsOfType(modelID, WebIFC.IFCSPACE), ...idsOfType(modelID, WebIFC.IFCOPENINGELEMENT)]);
@@ -167,22 +167,30 @@ async function load(buffer) {
     }
   }
 
+  // struktura: jen vazby umístění a skladby (rychlé i u velkých modelů, s průběhem);
+  // podlaží prvku se dohledá až při výběru, nahoru po rodičích
   progress('structure', 0);
   try {
-    const tree = await api.properties.getSpatialStructure(modelID);
-    const walk = (node, storey) => {
-      const isStorey = node.type === 'IFCBUILDINGSTOREY' || node.type === WebIFC.IFCBUILDINGSTOREY;
-      if (isStorey) {
-        storey = node.expressID;
-        const line = api.GetLine(modelID, storey);
-        storeyNames.set(storey, val(line.Name) || val(line.LongName) || `Podlaží ${storey}`);
-      } else if (storey != null) storeyOf.set(node.expressID, storey);
-      for (const ch of node.children || []) walk(ch, storey);
-    };
-    walk(tree, null);
+    for (const s of idsOfType(modelID, WebIFC.IFCBUILDINGSTOREY)) {
+      const line = api.GetLine(modelID, s);
+      storeyNames.set(s, val(line.Name) || val(line.LongName) || `Podlaží ${s}`);
+    }
+    const rels = [
+      ...idsOfType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE).map((id) => [id, 'RelatingStructure', 'RelatedElements']),
+      ...idsOfType(modelID, WebIFC.IFCRELAGGREGATES).map((id) => [id, 'RelatingObject', 'RelatedObjects']),
+    ];
+    let last = -1;
+    rels.forEach(([id, from, to], i) => {
+      const pct = Math.floor((i / rels.length) * 100);
+      if (pct !== last) { last = pct; progress('structure', i / rels.length); }
+      const rel = api.GetLine(modelID, id);
+      const parent = val(rel[from]);
+      for (const ch of rel[to] || []) { const c = val(ch); if (c != null && !parentOf.has(c)) parentOf.set(c, parent); }
+    });
   } catch (e) {
     console.warn('Prostorovou strukturu nejde načíst', e);
   }
+  progress('structure', 1);
 
   const out = [];
   const transfer = [];
@@ -227,9 +235,10 @@ function close(modelID) {
 async function props(modelID, id) {
   const m = models.get(modelID);
   if (!m) return null;
-  const { storeyOf, storeyNames } = m;
+  const { parentOf, storeyNames } = m;
   const line = api.GetLine(modelID, id);
-  const storey = storeyOf.get(id);
+  let storey = id;
+  for (let i = 0; i < 32 && storey != null && !storeyNames.has(storey); i++) storey = parentOf.get(storey);
   const out = {
     modelID,
     expressID: id,
