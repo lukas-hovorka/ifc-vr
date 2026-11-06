@@ -49,9 +49,11 @@ const xr = new XRControls(viewer, {
 });
 viewer.onBeforeRender = (dt) => xr.update(dt);
 
+/** Stavový řádek. Úspěšné načtení se neukazuje (model je vidět v seznamu), chyby a upozornění ano. */
 function setStatus(text, kind = '') {
   ui.status.textContent = text;
   ui.status.className = 'ebc-small side__status' + (kind ? ` is-${kind}` : '');
+  ui.status.hidden = kind === 'success';
 }
 
 const fmtSize = (b) => b >= 1e6 ? `${(b / 1e6).toLocaleString('cs-CZ', { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(b / 1e3))} kB`;
