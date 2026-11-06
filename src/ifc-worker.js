@@ -68,6 +68,30 @@ function invAffine(m) {
   return r;
 }
 const FAR_APART = 10000; // m
+/** Prvek s víc otvory se zobrazí bez vyříznutí: web-ifc odečítá otvory po jednom a u stropní desky
+ * se stovkami prostupů trvá výpočet desítky minut (model se „zasekne“ na začátku geometrie). */
+const MAX_OPENINGS = 100;
+
+/** Odstraní vazby otvorů u prvků s víc než MAX_OPENINGS otvory; vrátí počet takových prvků. */
+function dropHeavyOpenings(modelID) {
+  const rels = api.GetLineIDsWithType(modelID, WebIFC.IFCRELVOIDSELEMENT, true);
+  const byHost = new Map();
+  for (let i = 0; i < rels.size(); i++) {
+    const r = rels.get(i);
+    const host = val(api.GetLine(modelID, r).RelatingBuildingElement);
+    if (host == null) continue;
+    let list = byHost.get(host);
+    if (!list) byHost.set(host, (list = []));
+    list.push(r);
+  }
+  let hosts = 0;
+  for (const list of byHost.values()) {
+    if (list.length <= MAX_OPENINGS) continue;
+    hosts++;
+    for (const r of list) api.DeleteLine(modelID, r);
+  }
+  return hosts;
+}
 const isIdentity = (m) => m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
 
 async function load(buffer) {
@@ -80,6 +104,8 @@ async function load(buffer) {
   const schema = api.GetModelSchema(modelID);
 
   const skip = new Set([...idsOfType(modelID, WebIFC.IFCSPACE), ...idsOfType(modelID, WebIFC.IFCOPENINGELEMENT)]);
+  let simplified = 0;
+  try { simplified = dropHeavyOpenings(modelID); } catch (e) { console.warn('Otvory nejde zjednodušit', e); }
 
   const buckets = new Map();
   let elements = 0;
@@ -206,7 +232,7 @@ async function load(buffer) {
     transfer.push(item.position.buffer, item.normal.buffer, item.index.buffer, item.ranges.buffer);
     out.push(item);
   }
-  return { result: { modelID, schema, elements, aligned, buckets: out }, transfer };
+  return { result: { modelID, schema, elements, aligned, simplified, buckets: out }, transfer };
 }
 
 const fmtNum = (n) => {

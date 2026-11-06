@@ -94,6 +94,8 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 ## Omezení
 
 - IfcSpace a otvory se nezobrazují.
+- U prvků s víc než 100 otvory (typicky stropní deska s prostupy) se otvory nevyřezávají – web-ifc je odečítá
+  po jednom a takový prvek by se počítal desítky minut. Aplikace na to po načtení upozorní.
 - Velké modely (stovky MB, miliony trojúhelníků) mohou být v brýlích pomalé – vyexportujte jen potřebné profese.
 
 ## Kontakt

@@ -92,6 +92,8 @@ const queue = [];
 /** Modely, které nesedí na souřadnice prvního (jiný souřadnicový systém). */
 const notes = [];
 const MISALIGNED = 'Souřadnice jsou dál než 10 km od prvního modelu, model je umístěný do počátku.';
+const simplifiedText = (n) => `${n === 1 ? 'U 1 prvku' : `U ${n.toLocaleString('cs-CZ')} prvků`} s víc než 100 otvory`
+  + ' (např. stropní deska s prostupy) se otvory nevyřezávají, jinak by načítání trvalo desítky minut.';
 
 const plural = (n, one, few, many) => `${n.toLocaleString('cs-CZ')} ${n === 1 ? one : n >= 2 && n <= 4 ? few : many}`;
 const fmtTris = (tris) => tris >= 1e5
@@ -289,9 +291,10 @@ async function loadBuffer(buffer, name) {
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: null, custom: null });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
-    if (!res.aligned) notes.push(name);
+    const warn = [...(res.aligned ? [] : [MISALIGNED]), ...(res.simplified ? [simplifiedText(res.simplified)] : [])].join(' ');
+    if (warn) notes.push(`${name}: ${warn}`);
     setStatus(`Načteno: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
-      + (res.aligned ? '' : ` ${MISALIGNED}`), res.aligned ? 'success' : '');
+      + (warn ? ` ${warn}` : ''), warn ? '' : 'success');
     dropState('loaded');
     return true;
   } catch (err) {
@@ -399,7 +402,7 @@ async function enqueue(jobs) {
     setStatus(fail
       ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst.`
       : `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, celkem ${plural(loaded.length, 'model', 'modely', 'modelů')}.`
-        + (notes.length ? ` ${notes.join(', ')}: ${MISALIGNED}` : ''), fail ? 'error' : notes.length ? '' : 'success');
+        + (notes.length ? ` ${notes.join(' ')}` : ''), fail ? 'error' : notes.length ? '' : 'success');
   }
 }
 const loadFiles = (files) => enqueue([...files].map((f) => () => readFile(f)));
