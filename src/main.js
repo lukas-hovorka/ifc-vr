@@ -29,8 +29,7 @@ const ui = {
   side: $('side'), drop: $('drop'), file: $('file'), dropTitle: $('drop-title'), dropProgress: $('drop-progress'),
   modelsSec: $('models-sec'), models: $('models'), status: $('status'),
   loadedSec: $('loaded-sec'), loaded: $('loaded'), loadedCount: $('loaded-count'),
-  progressSec: $('progress-sec'), progress: $('progress'), progressBar: $('progress-bar'),
-  progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
+  progressSec: $('progress-sec'), progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
 };
 
@@ -107,10 +106,8 @@ function showProgress(phase, value = 0) {
   ui.progressSec.hidden = false;
   ui.progressName.textContent = modelName;
   ui.progressCount.textContent = batch.total > 1 ? `soubor ${batch.done + 1} z ${batch.total}` : '';
-  ui.progressPhase.textContent = `${PHASES[phase]} …`;
-  ui.progressBar.style.width = `${pct}%`;
-  ui.progressBar.textContent = `${pct} %`;
-  ui.progress.setAttribute('aria-valuenow', String(pct));
+  ui.progressPhase.textContent = `${PHASES[phase]} – ${pct} %`;
+  // pruh je výplň drop zóny, tady jen text
   dropState('loading', pct / 100);
 }
 const hideProgress = () => { ui.progressSec.hidden = true; };

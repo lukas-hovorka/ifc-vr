@@ -31,11 +31,8 @@
         <span class="ebc-dropzone__hint">nebo vyberte kliknutím – i více najednou</span>
       </label>
 
-      <section class="side__section side__progress" id="progress-sec" hidden>
+      <section class="side__section side__progress" id="progress-sec" hidden aria-live="polite">
         <div class="side__progress-head"><span class="side__progress-name" id="progress-name"></span><span class="ebc-small side__count" id="progress-count"></span></div>
-        <div class="ebc-progress" id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Průběh načítání">
-          <div class="ebc-progress__bar" id="progress-bar" style="width:0"></div>
-        </div>
         <p class="ebc-small side__progress-phase" id="progress-phase"></p>
       </section>
 
