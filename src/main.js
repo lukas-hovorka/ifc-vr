@@ -50,16 +50,24 @@ function gpuName() {
     const raw = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
     // Chrome/Edge: „ANGLE (Intel, Intel(R) UHD Graphics 770 (0x0000A780) Direct3D11 …)“ → jen název karty
     const m = /^ANGLE \([^,]*,\s*(.*?)(?:\s*\(0x[0-9a-f]+\))?(?:\s+Direct3D.*|\s+OpenGL.*|,.*|\))?$/i.exec(raw);
-    return (m ? m[1] : raw).trim();
-  } catch { return ''; }
+    const name = (m ? m[1] : raw).trim();
+    // Firefox (a prohlížeče s ochranou proti otiskům) místo skutečné karty hlásí zástupnou stejného výrobce
+    // („NVIDIA GeForce GTX 980, or similar“): pak spolehlivě platí jen výrobce
+    if (/or similar/i.test(raw) || /Firefox\//.test(navigator.userAgent)) {
+      const vendor = /NVIDIA|AMD|Radeon|Intel|Apple|Qualcomm|Adreno|Mali/i.exec(raw)?.[0];
+      if (vendor) return { name: /Radeon/i.test(vendor) ? 'AMD' : vendor, exact: false, raw };
+    }
+    return { name, exact: true, raw };
+  } catch { return null; }
 }
 /** Integrovaná grafika v procesoru (Intel UHD/Iris, AMD Radeon Graphics bez řady RX) nebo softwarové kreslení. */
 const isIntegrated = (name) => /Intel(?!.*\bArc\b)|Radeon\(TM\) Graphics|Radeon Graphics|Microsoft Basic|SwiftShader|llvmpipe/i.test(name);
 {
-  const gpu = gpuName();
+  const info = gpuName();
+  const gpu = info?.name;
   if (gpu) {
     // výběr karty na Windows řídí systém, ne stránka: při integrované poradit, kde přepnout
-    $('gpu').textContent = `Grafika: ${gpu}` + (isIntegrated(gpu)
+    $('gpu').textContent = `Grafika: ${gpu}` + (info.exact ? '' : ' (přesný model prohlížeč neuvádí)') + (isIntegrated(gpu)
       ? ' – integrovaná. Pro dedikovanou kartu nastavte ve Windows: Nastavení › Systém › Obrazovka › Grafika › prohlížeč › Vysoký výkon, pak prohlížeč restartujte.'
       : '');
     $('gpu').hidden = false;
