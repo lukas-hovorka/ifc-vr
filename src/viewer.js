@@ -11,7 +11,8 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 export class Viewer {
   constructor(container) {
     this.container = container;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // high-performance: v noteboocích se dvěma grafikami si prohlížeč vyžádá výkonnou (dedikovanou) kartu
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.xr.enabled = true;
     container.appendChild(this.renderer.domElement);
