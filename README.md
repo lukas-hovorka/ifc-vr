@@ -91,6 +91,15 @@ npm run build
 Složka `dist/` jde nahrát na libovolný HTTPS hosting (např. GitHub Pages). Seznam modelů ze složky `models/`
 tam není, modely se načítají ze souboru nebo přes `?model=https://…/model.ifc`.
 
+## Výkon
+
+- Zpracovaná geometrie se ukládá do mezipaměti prohlížeče (IndexedDB). Další otevření stejného souboru
+  (stejný název, velikost a datum změny) přeskočí výpočet geometrie; IFC se pak otevře už jen kvůli
+  vlastnostem prvků, na pozadí. Mezipaměť zabere nejvýš polovinu místa, které prohlížeč dovolí (max. 6 GB),
+  nejdéle nepoužité modely se mažou samy; ručně ji vymaže odkaz „Vymazat mezipaměť“ v panelu.
+- Na počítači se scéna kreslí jen po změně (pohyb kamery, výběr, model); ve VR každý snímek.
+- Řádek „Výkon“ v panelu ukazuje snímky za sekundu, trojúhelníky a počet vykreslení.
+
 ## Omezení
 
 - IfcSpace a otvory se nezobrazují.

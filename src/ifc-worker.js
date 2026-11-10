@@ -1,9 +1,11 @@
 // Web Worker: načte IFC přes web-ifc, sloučí geometrii podle barvy a vrátí ji hlavnímu vláknu.
 // Modely zůstávají otevřené, aby šly dotazovat vlastnosti vybraného prvku. Najednou jich může být víc
-// (např. profese stavby): všechny se umístí do souřadnic prvního načteného modelu.
+// (např. profese stavby). Geometrie je v souřadnicích modelu; zarovnání k prvnímu modelu dělá
+// prohlížeč maticí (podle coord), aby šla geometrie uložit do mezipaměti nezávisle na pořadí.
 import * as WebIFC from 'web-ifc';
 import { BufferGeometry, BufferAttribute } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
+import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
 
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
@@ -14,8 +16,10 @@ let ready = null;
  * (podlaží, prostor, celek) a názvy podlaží. modelID je číslo v rámci workeru, ne instance. */
 const models = new Map();
 let nextID = 0;
-/** Matice posunu k počátku prvního modelu; další modely se k ní vztahují. */
-let refMatrix = null;
+/** gid → slib otevření modelu pro vlastnosti (u modelu z mezipaměti se otevírá až po zobrazení). */
+const opening = new Map();
+/** poslední zápis do mezipaměti (údaj o velikosti počká, až doběhne) */
+let pendingPut = Promise.resolve();
 
 class Grow {
   constructor(T, n = 1 << 16) { this.T = T; this.a = new T(n); this.n = 0; }
@@ -30,7 +34,9 @@ class Grow {
   result() { return this.a.slice(0, this.n); }
 }
 
-const progress = (phase, value) => self.postMessage({ type: 'progress', phase, value });
+/** true = práce na pozadí (otevření modelu z mezipaměti pro vlastnosti), průběh se nehlásí */
+let quiet = false;
+const progress = (phase, value) => { if (!quiet) self.postMessage({ type: 'progress', phase, value }); };
 
 async function newApi() {
   const a = new WebIFC.IfcAPI();
@@ -73,32 +79,6 @@ function idsOfType(modelID, type) {
 
 const val = (x) => (x == null ? null : typeof x === 'object' && 'value' in x ? x.value : x);
 
-// 4×4 matice po sloupcích (jako v three.js / web-ifc)
-function mul(a, b) {
-  const o = new Array(16);
-  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
-    o[c * 4 + r] = a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
-  }
-  return o;
-}
-/** Inverze afinní matice (rotace/měřítko + posun). */
-function invAffine(m) {
-  const [a, b, c, , d, e, f, , g, h, i] = m;
-  const det = a * (e * i - f * h) - d * (b * i - c * h) + g * (b * f - c * e);
-  const k = 1 / det;
-  const r = [
-    (e * i - f * h) * k, (c * h - b * i) * k, (b * f - c * e) * k, 0,
-    (f * g - d * i) * k, (a * i - c * g) * k, (c * d - a * f) * k, 0,
-    (d * h - e * g) * k, (b * g - a * h) * k, (a * e - b * d) * k, 0,
-    0, 0, 0, 1,
-  ];
-  const tx = m[12], ty = m[13], tz = m[14];
-  r[12] = -(r[0] * tx + r[4] * ty + r[8] * tz);
-  r[13] = -(r[1] * tx + r[5] * ty + r[9] * tz);
-  r[14] = -(r[2] * tx + r[6] * ty + r[10] * tz);
-  return r;
-}
-const FAR_APART = 10000; // m
 /** Prvek s víc otvory se zobrazí bez vyříznutí: web-ifc odečítá otvory po jednom a u stropní desky
  * se stovkami prostupů trvá výpočet desítky minut (model se „zasekne“ na začátku geometrie). */
 const MAX_OPENINGS = 100;
@@ -123,17 +103,55 @@ function dropHeavyOpenings(modelID) {
   }
   return hosts;
 }
-const isIdentity = (m) => m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
+/**
+ * Načte model. Z mezipaměti: vrátí hotovou geometrii hned a IFC otevře (kvůli vlastnostem) až potom
+ * v `after`. Jinak geometrii spočítá, uloží do mezipaměti a vrátí.
+ */
+async function load(buffer, key, name) {
+  progress('cache', 0);
+  const cached = await cacheGet(key);
+  if (cached) {
+    const gid = nextID++;
+    const transfer = [];
+    for (const b of cached.buckets) {
+      transfer.push(b.position.buffer, b.normal.buffer, b.index.buffer, b.ranges.buffer);
+      if (b.bvh) { transfer.push(...b.bvh.roots); if (b.bvh.indirectBuffer) transfer.push(b.bvh.indirectBuffer.buffer); }
+    }
+    const after = () => {
+      const p = withApi(buffer.byteLength, (local) => {
+        models.set(gid, { api, local, ...readStructure(local, false) });
+      }).catch((e) => console.warn('Model z mezipaměti nejde otevřít pro vlastnosti', e))
+        .finally(() => opening.delete(gid));
+      opening.set(gid, p);
+      return p;
+    };
+    return { result: { modelID: gid, ...cached.meta, cached: true, buckets: cached.buckets }, transfer, after };
+  }
+  let out = null;
+  await withApi(buffer.byteLength, (local) => {
+    const gid = nextID++;
+    const geo = buildGeometry(local);
+    const structure = readStructure(local, true);
+    models.set(gid, { api, local, ...structure });
+    out = { gid, ...geo };
+  });
+  const { gid, meta, buckets, transfer } = out;
+  // pole se do mezipaměti zkopírují při zahájení zápisu; teprve potom je smí převzít hlavní vlákno
+  progress('save', 0);
+  pendingPut = (await cachePut(key, name, { meta, buckets })).done;
+  return { result: { modelID: gid, ...meta, cached: false, buckets }, transfer };
+}
 
-async function load(buffer) {
-  const first = await apiFor(buffer.byteLength);
+/** Otevře model v instanci, kam se vejde, a spustí nad ním fn(localID); při chybě paměti zkusí novou instanci. */
+async function withApi(bytes, fn) {
+  const first = await apiFor(bytes);
   try {
-    return loadIn(first, buffer);
+    return openIn(first, fn);
   } catch (e) {
     // plná instance: zkusit ještě jednou v nové (jen pokud v té plné už nějaký model byl)
     if (!first.open) { dropEmpty(); throw e instanceof Error ? e : memoryError(); }
     const fresh = await newApi();
-    try { return loadIn(fresh, buffer); } catch (e2) { dropEmpty(); throw e2 instanceof Error ? e2 : memoryError(); }
+    try { return openIn(fresh, fn); } catch (e2) { dropEmpty(); throw e2 instanceof Error ? e2 : memoryError(); }
   }
 }
 
@@ -142,14 +160,14 @@ function dropEmpty() {
   for (let i = apis.length - 1; i > 0; i--) if (!apis[i].open) apis.splice(i, 1);
 }
 
-function loadIn(a, buffer) {
+function openIn(a, fn) {
   api = a;
   progress('parse', 0);
   let modelID = -1;
   try {
-    modelID = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: true });
+    modelID = api.OpenModel(new Uint8Array(currentBuffer), { COORDINATE_TO_ORIGIN: true });
     if (modelID < 0) throw new Error('Soubor se nepodařilo otevřít jako IFC.');
-    const res = build(modelID);
+    const res = fn(modelID);
     api.open++;
     return res;
   } catch (e) {
@@ -157,11 +175,11 @@ function loadIn(a, buffer) {
     throw e;
   }
 }
+/** Soubor právě načítaného modelu (nastaví zpracování zprávy load). */
+let currentBuffer = null;
 
-function build(modelID) {
-  const parentOf = new Map();
-  const storeyNames = new Map();
-  const gid = nextID++;
+/** Geometrie modelu sloučená podle barvy, se stromem pro výběr; meta = údaje pro prohlížeč. */
+function buildGeometry(modelID) {
   const schema = api.GetModelSchema(modelID);
 
   const skip = new Set([...idsOfType(modelID, WebIFC.IFCSPACE), ...idsOfType(modelID, WebIFC.IFCOPENINGELEMENT)]);
@@ -229,55 +247,8 @@ function build(modelID) {
     }
   });
 
-  // každý model posune web-ifc k vlastnímu počátku; další modely se vrátí do souřadnic prvního
-  // (dál než FAR_APART od sebe = jiný souřadnicový systém, model zůstane v počátku)
-  const coord = api.GetCoordinationMatrix(modelID);
-  let aligned = true;
-  if (!refMatrix) refMatrix = coord;
-  else {
-    const R = mul(refMatrix, invAffine(coord));
-    aligned = Math.hypot(R[12], R[13], R[14]) <= FAR_APART;
-    if (aligned && !isIdentity(R)) {
-      for (const b of buckets.values()) {
-        const P = b.pos.a, N = b.nrm.a;
-        for (let o = 0; o < b.pos.n; o += 3) {
-          const x = P[o], y = P[o + 1], z = P[o + 2];
-          P[o] = R[0] * x + R[4] * y + R[8] * z + R[12];
-          P[o + 1] = R[1] * x + R[5] * y + R[9] * z + R[13];
-          P[o + 2] = R[2] * x + R[6] * y + R[10] * z + R[14];
-          const a = N[o], bb = N[o + 1], cc = N[o + 2];
-          N[o] = R[0] * a + R[4] * bb + R[8] * cc;
-          N[o + 1] = R[1] * a + R[5] * bb + R[9] * cc;
-          N[o + 2] = R[2] * a + R[6] * bb + R[10] * cc;
-        }
-      }
-    }
-  }
-
-  // struktura: jen vazby umístění a skladby (rychlé i u velkých modelů, s průběhem);
-  // podlaží prvku se dohledá až při výběru, nahoru po rodičích
-  progress('structure', 0);
-  try {
-    for (const s of idsOfType(modelID, WebIFC.IFCBUILDINGSTOREY)) {
-      const line = api.GetLine(modelID, s);
-      storeyNames.set(s, val(line.Name) || val(line.LongName) || `Podlaží ${s}`);
-    }
-    const rels = [
-      ...idsOfType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE).map((id) => [id, 'RelatingStructure', 'RelatedElements']),
-      ...idsOfType(modelID, WebIFC.IFCRELAGGREGATES).map((id) => [id, 'RelatingObject', 'RelatedObjects']),
-    ];
-    let last = -1;
-    rels.forEach(([id, from, to], i) => {
-      const pct = Math.floor((i / rels.length) * 100);
-      if (pct !== last) { last = pct; progress('structure', i / rels.length); }
-      const rel = api.GetLine(modelID, id);
-      const parent = val(rel[from]);
-      for (const ch of rel[to] || []) { const c = val(ch); if (c != null && !parentOf.has(c)) parentOf.set(c, parent); }
-    });
-  } catch (e) {
-    console.warn('Prostorovou strukturu nejde načíst', e);
-  }
-  progress('structure', 1);
+  // posun, o který web-ifc model přesunul k počátku: podle něj prohlížeč zarovná modely mezi sebou
+  const coord = Array.from(api.GetCoordinationMatrix(modelID));
 
   const out = [];
   const transfer = [];
@@ -311,8 +282,39 @@ function build(modelID) {
     progress('bvh', doneTris / totalTris);
     out.push(item);
   }
-  models.set(gid, { api, local: modelID, parentOf, storeyNames });
-  return { result: { modelID: gid, schema, elements, aligned, simplified, buckets: out }, transfer };
+  return { meta: { schema, elements, simplified, coord }, buckets: out, transfer };
+}
+
+/**
+ * Struktura: jen vazby umístění a skladby (rychlé i u velkých modelů); podlaží prvku se dohledá
+ * až při výběru, nahoru po rodičích. `report` = hlásit průběh (u modelu z mezipaměti běží na pozadí).
+ */
+function readStructure(modelID, report) {
+  const parentOf = new Map();
+  const storeyNames = new Map();
+  if (report) progress('structure', 0);
+  try {
+    for (const s of idsOfType(modelID, WebIFC.IFCBUILDINGSTOREY)) {
+      const line = api.GetLine(modelID, s);
+      storeyNames.set(s, val(line.Name) || val(line.LongName) || `Podlaží ${s}`);
+    }
+    const rels = [
+      ...idsOfType(modelID, WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE).map((id) => [id, 'RelatingStructure', 'RelatedElements']),
+      ...idsOfType(modelID, WebIFC.IFCRELAGGREGATES).map((id) => [id, 'RelatingObject', 'RelatedObjects']),
+    ];
+    let last = -1;
+    rels.forEach(([id, from, to], i) => {
+      const pct = Math.floor((i / rels.length) * 100);
+      if (report && pct !== last) { last = pct; progress('structure', i / rels.length); }
+      const rel = api.GetLine(modelID, id);
+      const parent = val(rel[from]);
+      for (const ch of rel[to] || []) { const c = val(ch); if (c != null && !parentOf.has(c)) parentOf.set(c, parent); }
+    });
+  } catch (e) {
+    console.warn('Prostorovou strukturu nejde načíst', e);
+  }
+  if (report) progress('structure', 1);
+  return { parentOf, storeyNames };
 }
 
 const fmtNum = (n) => {
@@ -331,17 +333,18 @@ function fmt(v) {
   return String(v);
 }
 
-function close(modelID) {
+async function close(modelID) {
+  await opening.get(modelID);
   const m = models.get(modelID);
   if (!m) return;
   m.api.CloseModel(m.local);
   m.api.open--;
   models.delete(modelID);
   dropEmpty();
-  if (!models.size) refMatrix = null;
 }
 
 async function props(modelID, id) {
+  await opening.get(modelID);
   const m = models.get(modelID);
   if (!m) return null;
   const { api, local, parentOf, storeyNames } = m;
@@ -385,21 +388,37 @@ async function props(modelID, id) {
   return out;
 }
 
-self.onmessage = async (e) => {
-  const { id, type, payload } = e.data;
+// zprávy se zpracovávají po jedné za sebou: načítání a otevírání modelů sdílí proměnnou `api`
+let chain = Promise.resolve();
+self.onmessage = (e) => { chain = chain.then(() => handle(e.data)); };
+
+async function handle({ id, type, payload }) {
   try {
     if (type === 'init') { await init(payload.wasmPath); self.postMessage({ id, result: true }); return; }
     await ready;
     if (type === 'load') {
-      const { result, transfer } = await load(payload.buffer);
-      self.postMessage({ id, result }, transfer);
+      currentBuffer = payload.buffer;
+      try {
+        const { result, transfer, after } = await load(payload.buffer, payload.key, payload.name);
+        self.postMessage({ id, result }, transfer);
+        // model z mezipaměti už je vidět; teď se otevře IFC pro vlastnosti prvků (další zprávy počkají)
+        if (after) { quiet = true; try { await after(); } finally { quiet = false; } }
+      } finally {
+        currentBuffer = null;
+      }
     } else if (type === 'props') {
       self.postMessage({ id, result: await props(payload.modelID, payload.expressID) });
     } else if (type === 'close') {
-      close(payload.modelID);
+      await close(payload.modelID);
+      self.postMessage({ id, result: true });
+    } else if (type === 'cacheInfo') {
+      await pendingPut;
+      self.postMessage({ id, result: await cacheInfo() });
+    } else if (type === 'cacheClear') {
+      await cacheClear();
       self.postMessage({ id, result: true });
     }
   } catch (err) {
     self.postMessage({ id, error: err?.message || String(err) });
   }
-};
+}

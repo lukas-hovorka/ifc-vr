@@ -8,6 +8,9 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
+/** Modely dál od sebe než tolik metrů mají jiný souřadnicový systém a nezarovnávají se. */
+const FAR_APART = 10000;
+
 export class Viewer {
   constructor(container) {
     this.container = container;
@@ -38,6 +41,10 @@ export class Viewer {
     this.modelRoot.name = 'model';
     this.scene.add(this.modelRoot);
     this.meshes = [];
+    /** modelID → skupina modelu (její matice zarovná model k prvnímu načtenému) */
+    this.groups = new Map();
+    /** posun prvního modelu k počátku (coord z web-ifc); další modely se k němu vztahují */
+    this.refMatrix = null;
     this.bbox = new THREE.Box3();
 
     this.ground = new THREE.Mesh(
@@ -110,14 +117,37 @@ export class Viewer {
     this.clearHighlight();
     for (const m of this.meshes) this.disposeMesh(m);
     this.meshes = [];
+    for (const g of this.groups.values()) g.removeFromParent();
+    this.groups.clear();
+    this.refMatrix = null;
     this.modelRoot.position.set(0, 0, 0);
     this.modelRoot.quaternion.identity();
     this.modelRoot.scale.setScalar(1);
     this.updateBounds();
   }
 
-  /** Přidá model z výsledku workeru (geometrie sloučená podle barvy). `fit` = pohled na celek. */
-  addModel(modelID, buckets, fit = true) {
+  /**
+   * Přidá model z výsledku workeru (geometrie sloučená podle barvy). `fit` = pohled na celek.
+   * `coord` = posun modelu k počátku z web-ifc: model se maticí umístí do souřadnic prvního modelu.
+   * Vrátí false, když je model dál než FAR_APART (jiný souřadnicový systém) a zůstal v počátku.
+   */
+  addModel(modelID, buckets, fit = true, coord = null) {
+    const group = new THREE.Group();
+    group.matrixAutoUpdate = false;
+    group.userData.modelID = modelID;
+    let aligned = true;
+    if (coord) {
+      const C = new THREE.Matrix4().fromArray(coord);
+      if (!this.refMatrix) this.refMatrix = C;
+      else {
+        const R = this.refMatrix.clone().multiply(C.clone().invert());
+        aligned = new THREE.Vector3().setFromMatrixPosition(R).length() <= FAR_APART;
+        if (aligned) group.matrix.copy(R);
+      }
+    }
+    this.modelRoot.add(group);
+    group.updateMatrixWorld(true);
+    this.groups.set(modelID, group);
     // neprůhledné napřed, průhledné (okna) až po nich
     buckets.sort((a, b) => b.color[3] - a.color[3]);
     for (const b of buckets) {
@@ -145,12 +175,14 @@ export class Viewer {
       mesh.userData.modelID = modelID;
       mesh.renderOrder = transparent ? 1 : 0;
       mesh.matrixAutoUpdate = false;
-      this.modelRoot.add(mesh);
+      group.add(mesh);
+      mesh.updateMatrixWorld(true);
       this.meshes.push(mesh);
     }
     this.updateBounds();
     if (fit) this.fitView();
     this.invalidate();
+    return aligned;
   }
 
   /** Skryje / zobrazí model (skrytý se nedá vybrat ani na něj teleportovat). */
@@ -175,12 +207,17 @@ export class Viewer {
     if (this.selectedId?.model === modelID) this.clearHighlight();
     for (const m of this.meshes) if (m.userData.modelID === modelID) this.disposeMesh(m);
     this.meshes = this.meshes.filter((m) => m.userData.modelID !== modelID);
+    this.groups.get(modelID)?.removeFromParent();
+    this.groups.delete(modelID);
+    if (!this.groups.size) this.refMatrix = null;
     this.updateBounds();
   }
 
+  /** Obálka všech modelů v souřadnicích modelRoot (geometrie posunutá maticí skupiny modelu). */
   updateBounds() {
     this.bbox.makeEmpty();
-    for (const m of this.meshes) this.bbox.union(m.geometry.boundingBox);
+    const box = new THREE.Box3();
+    for (const m of this.meshes) this.bbox.union(box.copy(m.geometry.boundingBox).applyMatrix4(m.parent.matrix));
     this.updateGround();
   }
 

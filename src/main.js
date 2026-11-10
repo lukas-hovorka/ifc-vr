@@ -33,6 +33,7 @@ const ready = call('init', { wasmPath: new URL('wasm/', document.baseURI).href }
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
 const ui = {
+  cacheLine: $('cache-line'), cacheText: $('cache-text'), cacheClear: $('cache-clear'),
   side: $('side'), drop: $('drop'), file: $('file'), dropTitle: $('drop-title'), dropProgress: $('drop-progress'),
   modelsSec: $('models-sec'), models: $('models'), status: $('status'),
   loadedSec: $('loaded-sec'), loaded: $('loaded'), loadedCount: $('loaded-count'),
@@ -73,6 +74,21 @@ const isIntegrated = (name) => /Intel(?!.*\bArc\b)|Radeon\(TM\) Graphics|Radeon 
     $('gpu').hidden = false;
   }
 }
+
+// mezipaměť zpracované geometrie (v prohlížeči): velikost a vymazání
+async function updateCacheInfo() {
+  let info;
+  try { info = await call('cacheInfo'); } catch { return; }
+  ui.cacheLine.hidden = !info.count;
+  ui.cacheText.textContent = `Mezipaměť: ${plural(info.count, 'model', 'modely', 'modelů')}, ${fmtSize(info.bytes)} – `
+    + 'další otevření stejného souboru je rychlé.';
+}
+ui.cacheClear.addEventListener('click', async (e) => {
+  e.preventDefault();
+  try { await call('cacheClear'); } catch (e) { console.warn(e); }
+  updateCacheInfo();
+});
+ready.then(updateCacheInfo);
 
 // ukazatel výkonu: snímky za sekundu (na počítači jen při pohybu, v klidu se nekreslí), trojúhelníky
 // a počet vykreslovacích příkazů posledního snímku
@@ -158,10 +174,11 @@ const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == 
 const PHASES = {
   read: 'Čtu soubor', download: 'Stahuji', parse: 'Otevírám model',
   geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu', bvh: 'Připravuji výběr prvků',
+  cache: 'Hledám v mezipaměti', save: 'Ukládám do mezipaměti',
 };
 const RANGES = {
-  file: { read: [0, 0.1], parse: [0.1, 0.2], geometry: [0.2, 0.9], structure: [0.9, 0.93], bvh: [0.93, 1] },
-  url: { download: [0, 0.4], parse: [0.4, 0.48], geometry: [0.48, 0.92], structure: [0.92, 0.94], bvh: [0.94, 1] },
+  file: { read: [0, 0.1], cache: [0.1, 0.11], parse: [0.11, 0.2], geometry: [0.2, 0.9], structure: [0.9, 0.93], bvh: [0.93, 0.99], save: [0.99, 1] },
+  url: { download: [0, 0.4], cache: [0.4, 0.41], parse: [0.41, 0.48], geometry: [0.48, 0.92], structure: [0.92, 0.94], bvh: [0.94, 0.99], save: [0.99, 1] },
 };
 const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
@@ -329,7 +346,8 @@ async function removeModel(modelID) {
   updateLoaded();
 }
 
-async function loadBuffer(buffer, name) {
+/** key = totožnost souboru pro mezipaměť geometrie (název, velikost, datum změny) */
+async function loadBuffer(buffer, name, key = '') {
   modelName = name;
   const t0 = performance.now();
   loading = true;
@@ -337,17 +355,18 @@ async function loadBuffer(buffer, name) {
   try {
     await ready;
     const size = buffer.byteLength;
-    const res = await call('load', { buffer }, [buffer]);
-    viewer.addModel(res.modelID, res.buckets, true);
+    const res = await call('load', { buffer, key, name }, [buffer]);
+    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: null, custom: null });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
     const warn = [...(res.aligned ? [] : [MISALIGNED]), ...(res.simplified ? [simplifiedText(res.simplified)] : [])].join(' ');
     if (warn) notes.push(`${name}: ${warn}`);
-    setStatus(`Načteno: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
+    setStatus(`Načteno${res.cached ? ' z mezipaměti' : ''}: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
       + (warn ? ` ${warn}` : ''), warn ? '' : 'success');
     dropState('loaded');
+    updateCacheInfo();
     return true;
   } catch (err) {
     console.error(err);
@@ -384,7 +403,7 @@ async function readFile(file) {
     setStatus(`Soubor ${file.name} nejde přečíst: ${err.message}`, 'error');
     return false;
   }
-  return loadBuffer(buffer, file.name);
+  return loadBuffer(buffer, file.name, `soubor|${file.name}|${file.size}|${file.lastModified}`);
 }
 
 /** Přečte soubor z disku s průběhem (velké soubory v brýlích chvíli trvají). */
@@ -421,7 +440,8 @@ async function readUrl(url, name) {
     const buf = new Uint8Array(got);
     let o = 0;
     for (const c of chunks) { buf.set(c, o); o += c.length; }
-    return loadBuffer(buf.buffer, name);
+    const stamp = res.headers.get('Last-Modified') || res.headers.get('ETag') || '';
+    return loadBuffer(buf.buffer, name, `url|${new URL(url, location.href).href}|${got}|${stamp}`);
   } catch (err) {
     dropState('error');
     setStatus(`Model ${name} nejde stáhnout: ${err.message}`, 'error');
