@@ -1,7 +1,7 @@
 // 3D scéna: model, světla, podlaha, výběr a zvýraznění prvků.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+import { MeshBVH, computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { t } from './theme.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
@@ -13,7 +13,8 @@ export class Viewer {
     this.container = container;
     // high-performance: v noteboocích se dvěma grafikami si prohlížeč vyžádá výkonnou (dedikovanou) kartu
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // strop 1,5: na displejích s vysokým rozlišením by 2× znamenalo skoro dvojnásobek pixelů (s vyhlazováním)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.xr.enabled = true;
     container.appendChild(this.renderer.domElement);
 
@@ -60,21 +61,36 @@ export class Viewer {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
+    this.controls.addEventListener('change', () => this.invalidate());
 
+    // Na počítači se kreslí jen po změně (pohyb kamery, výběr, model…), jinak by grafická karta
+    // stále kreslila stejný obraz. Ve VR/AR se kreslí každý snímek (hlava se hýbe pořád).
+    this.dirty = true;
+    this.wasPresenting = false;
     this.onBeforeRender = null;
+    this.onAfterRender = null;
     const clock = new THREE.Clock();
     this.renderer.setAnimationLoop((time, frame) => {
       const dt = Math.min(clock.getDelta(), 0.1);
-      if (!this.renderer.xr.isPresenting) this.controls.update();
+      const xr = this.renderer.xr.isPresenting;
+      if (xr !== this.wasPresenting) { this.wasPresenting = xr; this.dirty = true; }
+      if (!xr) this.controls.update(); // tlumení dobíhá přes událost change
       this.onBeforeRender?.(dt, frame);
+      if (!xr && !this.dirty) return;
+      this.dirty = false;
       this.renderer.render(this.scene, this.camera);
+      this.onAfterRender?.(time);
     });
 
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
   }
 
+  /** Vyžádá nové vykreslení (na počítači se kreslí jen po změně). */
+  invalidate() { this.dirty = true; }
+
   resize() {
+    this.invalidate();
     if (this.renderer.xr.isPresenting) return;
     const w = this.container.clientWidth || 1, h = this.container.clientHeight || 1;
     this.renderer.setSize(w, h, false);
@@ -83,6 +99,7 @@ export class Viewer {
   }
 
   disposeMesh(m) {
+    this.invalidate();
     m.geometry.disposeBoundsTree();
     m.geometry.dispose();
     m.material.dispose();
@@ -110,13 +127,17 @@ export class Viewer {
       g.setIndex(new THREE.BufferAttribute(b.index, 1));
       g.computeBoundingBox();
       g.computeBoundingSphere();
-      g.computeBoundsTree({ indirect: true });
+      // strom pro výběr prvků spočítal worker (jinak by tu u milionů trojúhelníků hlavní vlákno zamrzlo)
+      if (b.bvh) g.boundsTree = MeshBVH.deserialize({ ...b.bvh, index: b.index }, g, { setIndex: false });
+      else g.computeBoundsTree({ indirect: true });
       const [r, gg, bb, a] = b.color;
       const transparent = a < 0.99;
+      // neprůhledné prvky jsou uzavřená tělesa: zadní strany nejsou vidět a kreslit je je zbytečná práce
+      // (pohled zevnitř zdi/desky v VR je ukáže průhledně, jako běžné prohlížeče IFC)
       const mat = new THREE.MeshLambertMaterial({
         color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace),
         transparent, opacity: transparent ? Math.max(a, 0.15) : 1, depthWrite: !transparent,
-        side: THREE.DoubleSide,
+        side: transparent ? THREE.DoubleSide : THREE.FrontSide,
       });
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData.origColor = mat.color.clone();
@@ -129,12 +150,14 @@ export class Viewer {
     }
     this.updateBounds();
     if (fit) this.fitView();
+    this.invalidate();
   }
 
   /** Skryje / zobrazí model (skrytý se nedá vybrat ani na něj teleportovat). */
   setModelVisible(modelID, on) {
     if (!on && this.selectedId?.model === modelID) this.clearHighlight();
     for (const m of this.meshes) if (m.userData.modelID === modelID) m.visible = on;
+    this.invalidate();
   }
 
   /** Přebarví celý model jednou barvou (CSS barva), null = původní barvy z IFC. */
@@ -143,6 +166,7 @@ export class Viewer {
     for (const m of this.meshes) {
       if (m.userData.modelID === modelID) m.material.color.copy(c || m.userData.origColor);
     }
+    this.invalidate();
   }
 
   get visibleMeshes() { return this.meshes.filter((m) => m.visible); }
@@ -163,6 +187,7 @@ export class Viewer {
   get groundY() { return this.bbox.isEmpty() ? 0 : this.bbox.min.y; }
 
   updateGround() {
+    this.invalidate();
     const size = this.bbox.getSize(new THREE.Vector3());
     const c = this.bbox.getCenter(new THREE.Vector3());
     const extent = Math.max(size.x, size.z, 10) * 4;
@@ -225,6 +250,7 @@ export class Viewer {
   }
 
   clearHighlight() {
+    this.invalidate();
     for (const h of this.highlight) { h.geometry.dispose(); h.removeFromParent(); }
     this.highlight = [];
     this.selectedId = null;
@@ -262,6 +288,7 @@ export class Viewer {
 
   /** AR: průhledné pozadí a bez mřížky (je vidět okolí). */
   setPassthrough(on) {
+    this.invalidate();
     this.scene.background = on ? null : this.bg;
     if (this.grid) this.grid.visible = !on;
   }

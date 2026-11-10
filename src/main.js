@@ -73,6 +73,26 @@ const isIntegrated = (name) => /Intel(?!.*\bArc\b)|Radeon\(TM\) Graphics|Radeon 
     $('gpu').hidden = false;
   }
 }
+
+// ukazatel výkonu: snímky za sekundu (na počítači jen při pohybu, v klidu se nekreslí), trojúhelníky
+// a počet vykreslovacích příkazů posledního snímku
+const perf = { frames: 0, since: performance.now(), tris: 0, calls: 0 };
+viewer.onAfterRender = () => {
+  perf.frames++;
+  perf.tris = viewer.renderer.info.render.triangles;
+  perf.calls = viewer.renderer.info.render.calls;
+};
+setInterval(() => {
+  const now = performance.now();
+  const fps = (perf.frames * 1000) / (now - perf.since);
+  perf.frames = 0;
+  perf.since = now;
+  const el = $('perf');
+  el.hidden = !viewer.meshes.length;
+  if (el.hidden) return;
+  el.textContent = `Výkon: ${fps >= 1 ? `${plural(Math.round(fps), 'snímek', 'snímky', 'snímků')}/s` : 'v klidu, nekreslí se'}`
+    + ` · ${fmtTris(perf.tris)} · ${perf.calls.toLocaleString('cs-CZ')} vykreslení`;
+}, 1000);
 let modelName = '';
 let loading = false;
 
@@ -137,11 +157,11 @@ const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == 
 // Jeden pruh pro právě načítaný soubor (fáze mají pevné úseky), nad ním název a pořadí v dávce.
 const PHASES = {
   read: 'Čtu soubor', download: 'Stahuji', parse: 'Otevírám model',
-  geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu',
+  geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu', bvh: 'Připravuji výběr prvků',
 };
 const RANGES = {
-  file: { read: [0, 0.1], parse: [0.1, 0.2], geometry: [0.2, 0.95], structure: [0.95, 1] },
-  url: { download: [0, 0.4], parse: [0.4, 0.48], geometry: [0.48, 0.96], structure: [0.96, 1] },
+  file: { read: [0, 0.1], parse: [0.1, 0.2], geometry: [0.2, 0.9], structure: [0.9, 0.93], bvh: [0.93, 1] },
+  url: { download: [0, 0.4], parse: [0.4, 0.48], geometry: [0.48, 0.92], structure: [0.92, 0.94], bvh: [0.94, 1] },
 };
 const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');

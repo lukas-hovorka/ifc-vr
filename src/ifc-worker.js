@@ -2,6 +2,8 @@
 // Modely zůstávají otevřené, aby šly dotazovat vlastnosti vybraného prvku. Najednou jich může být víc
 // (např. profese stavby): všechny se umístí do souřadnic prvního načteného modelu.
 import * as WebIFC from 'web-ifc';
+import { BufferGeometry, BufferAttribute } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
@@ -279,16 +281,34 @@ function build(modelID) {
 
   const out = [];
   const transfer = [];
-  for (const b of buckets.values()) {
-    if (!b.idx.n) continue;
+  const list = [...buckets.values()].filter((b) => b.idx.n);
+  const totalTris = Math.max(list.reduce((s, b) => s + b.idx.n, 0), 1);
+  let doneTris = 0;
+  progress('bvh', 0);
+  for (const b of list) {
     const item = {
       color: b.color,
       position: b.pos.result(),
       normal: b.nrm.result(),
       index: b.idx.result(),
       ranges: Uint32Array.from(b.ranges),
+      bvh: null,
     };
     transfer.push(item.position.buffer, item.normal.buffer, item.index.buffer, item.ranges.buffer);
+    // strom pro výběr prvků (raycast) se staví tady, ne v hlavním vlákně: u milionů trojúhelníků trvá sekundy
+    try {
+      const g = new BufferGeometry();
+      g.setAttribute('position', new BufferAttribute(item.position, 3));
+      g.setIndex(new BufferAttribute(item.index, 1));
+      const s = MeshBVH.serialize(new MeshBVH(g, { indirect: true }), { cloneBuffers: false });
+      item.bvh = { version: s.version, roots: s.roots, indirectBuffer: s.indirectBuffer };
+      transfer.push(...s.roots);
+      if (s.indirectBuffer) transfer.push(s.indirectBuffer.buffer);
+    } catch (e) {
+      console.warn('Strom pro výběr nejde spočítat, spočítá se v hlavním vlákně', e);
+    }
+    doneTris += b.idx.n;
+    progress('bvh', doneTris / totalTris);
     out.push(item);
   }
   models.set(gid, { api, local: modelID, parentOf, storeyNames });
