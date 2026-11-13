@@ -148,14 +148,11 @@ $('btn-collapse').addEventListener('click', (e) => {
 
 // ---------- načtení ----------
 // Modelů může být víc (profese stavby); zobrazí se spolu v souřadnicích prvního.
-/** @type {{ modelID:number, name:string, size:number, elements:number, tris:number, visible:boolean, color:number }[]} */
+/** @type {{ modelID:number, name:string, size:number, schema:string, elements:number, tris:number, visible:boolean, color:string|null, custom:string|null }[]} */
 const loaded = [];
-/** Barvy pro přebarvení modelu (kategorie z EBC_UI_vibe); color 0 = původní barvy z IFC. */
-const MODEL_COLORS = [1, 2, 3, 4, 5, 6].map((i) => t(`color.data.category-${i}`));
-// barva modelu: null = původní z IFC, 1–6 = barva palety, '#rrggbb' = vlastní barva uživatele
-const colorHex = (c) => (c == null ? null : typeof c === 'number' ? MODEL_COLORS[c - 1] : c);
-const colorCss = (c) => (c == null ? '' : typeof c === 'number' ? `var(--ebc-color-data-category-${c})` : c);
-const colorName = (c) => (c == null ? 'původní barvy z IFC' : typeof c === 'number' ? `barva ${c} z palety` : `vlastní ${c.toUpperCase()}`);
+// barva modelu: null = původní z IFC, jinak '#rrggbb' (paleta v nabídce #color-menu jako v IFC vieweru, nebo vlastní)
+const PALETTE = [...document.querySelectorAll('#color-palette [data-color]')].map((b) => ({ hex: b.dataset.color, name: b.title }));
+const colorName = (c) => (c == null ? 'původní barvy z IFC' : PALETTE.find((x) => x.hex === c)?.name.toLowerCase() || `vlastní ${c.toUpperCase()}`);
 const queue = [];
 /** Modely, které nesedí na souřadnice prvního (jiný souřadnicový systém). */
 const notes = [];
@@ -203,29 +200,41 @@ onProgress = (d) => {
 function updateLoaded() {
   ui.loaded.replaceChildren();
   for (const m of loaded) {
+    // řádek jako v IFC vieweru: zobrazit, barva, název (klepnutím přiblížit) s podtitulkem, velikost, odebrat
     const li = document.createElement('li');
+    li.className = 'model-file';
     li.classList.toggle('is-hidden', !m.visible);
-    li.title = `${m.name} – ${fmtSize(m.size)}, ${plural(m.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(m.tris)}`;
-    li.innerHTML = '<label class="ebc-choice model__toggle"><input type="checkbox"><span class="model__name"></span></label>'
-      + '<button class="model__color"></button><span class="model__size"></span>'
-      + '<button class="ebc-icon-btn model__remove" title="Odebrat model"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-delete"/></svg></button>';
+    li.innerHTML = '<label class="ebc-choice model-file__vis"><input type="checkbox"></label>'
+      + '<button class="model__color" type="button"></button>'
+      + '<button class="model-file__name" type="button"><span class="ebc-filelist__name"></span><span class="model-file__meta"></span></button>'
+      + '<span class="model-file__size"></span>'
+      + '<button class="ebc-icon-btn model-file__remove" type="button"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-window-close"/></svg></button>';
     const check = li.querySelector('input');
     check.checked = m.visible;
+    check.setAttribute('aria-label', `Zobrazit ${m.name}`);
     check.title = m.visible ? 'Skrýt model' : 'Zobrazit model';
     check.addEventListener('change', () => setVisible(m.modelID, check.checked));
-    li.querySelector('.model__name').textContent = m.name;
+    const nameBtn = li.querySelector('.model-file__name');
+    nameBtn.title = `${m.name} – ${fmtTris(m.tris)}. Klepnutím přiblížíte.`;
+    nameBtn.querySelector('.ebc-filelist__name').textContent = m.name;
+    nameBtn.querySelector('.model-file__meta').textContent = [m.schema, plural(m.elements, 'prvek', 'prvky', 'prvků')].filter(Boolean).join(' · ');
+    nameBtn.addEventListener('click', () => viewer.fitModel(m.modelID));
     const sw = li.querySelector('.model__color');
     sw.title = `Barva modelu: ${colorName(m.color)}. Kliknutím změníte.`;
+    sw.setAttribute('aria-label', `Barva ${m.name}: ${m.color || 'původní'}`);
     sw.setAttribute('aria-haspopup', 'menu');
     sw.classList.toggle('is-original', m.color == null);
-    if (m.color != null) sw.style.setProperty('--swatch', colorCss(m.color));
+    if (m.color != null) sw.style.setProperty('--swatch', m.color);
     sw.addEventListener('click', (e) => { e.stopPropagation(); openColorMenu(m.modelID, sw); });
-    li.querySelector('.model__size').textContent = fmtSize(m.size);
-    li.querySelector('.model__remove').addEventListener('click', () => removeModel(m.modelID));
+    li.querySelector('.model-file__size').textContent = fmtSize(m.size);
+    const rm = li.querySelector('.model-file__remove');
+    rm.title = 'Odebrat model';
+    rm.setAttribute('aria-label', `Odebrat ${m.name}`);
+    rm.addEventListener('click', () => removeModel(m.modelID));
     ui.loaded.appendChild(li);
   }
   xr.panel.set({
-    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: colorHex(m.color) })),
+    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color })),
   });
   ui.loadedSec.hidden = !loaded.length;
   ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
@@ -253,15 +262,15 @@ function setColor(modelID, color) {
   if (!m) return;
   m.color = color;
   if (typeof color === 'string') m.custom = color;
-  viewer.setModelColor(modelID, colorHex(color));
+  viewer.setModelColor(modelID, color);
   updateLoaded();
 }
 
-/** VR (bez výběru barvy): původní → paleta 1 … 6 → vlastní (pokud byla zvolená) → původní. */
+/** VR (bez výběru barvy): původní → barvy palety → vlastní (pokud byla zvolená) → původní. */
 function cycleColor(modelID) {
   const m = loaded.find((x) => x.modelID === modelID);
   if (!m) return;
-  const order = [null, 1, 2, 3, 4, 5, 6, ...(m.custom ? [m.custom] : [])];
+  const order = [null, ...PALETTE.map((x) => x.hex), ...(m.custom && !PALETTE.some((x) => x.hex === m.custom) ? [m.custom] : [])];
   const i = order.indexOf(m.color);
   setColor(modelID, order[(i + 1) % order.length]);
 }
@@ -270,24 +279,15 @@ function cycleColor(modelID) {
 const colorMenu = $('color-menu');
 const colorInput = $('color-input');
 let colorFor = null;
-for (let i = 1; i <= MODEL_COLORS.length; i++) {
-  const b = document.createElement('button');
-  b.className = 'model__color';
-  b.dataset.color = String(i);
-  b.title = `Barva ${i} z palety`;
-  b.setAttribute('role', 'menuitemradio');
-  b.style.setProperty('--swatch', colorCss(i));
-  $('color-palette').appendChild(b);
-}
 
 function openColorMenu(modelID, anchor) {
   const m = loaded.find((x) => x.modelID === modelID);
   if (!m) return;
   if (colorFor === modelID && !colorMenu.hidden) { closeColorMenu(); return; }
   colorFor = modelID;
-  for (const b of colorMenu.querySelectorAll('[data-color]')) b.setAttribute('aria-checked', String(+b.dataset.color === m.color));
+  for (const b of colorMenu.querySelectorAll('[data-color]')) b.setAttribute('aria-checked', String(b.dataset.color === m.color));
   const own = colorMenu.querySelector('[data-act="custom"]');
-  own.setAttribute('aria-checked', String(typeof m.color === 'string'));
+  own.setAttribute('aria-checked', String(m.color != null && !PALETTE.some((x) => x.hex === m.color)));
   own.querySelector('.model__color').style.setProperty('--swatch', m.custom || 'transparent');
   colorMenu.querySelector('[data-act="orig"]').setAttribute('aria-checked', String(m.color == null));
   colorMenu.hidden = false;
@@ -306,11 +306,11 @@ colorMenu.addEventListener('click', (e) => {
   e.stopPropagation();
   const b = e.target.closest('button');
   if (!b || colorFor == null) return;
-  if (b.dataset.color) { setColor(colorFor, +b.dataset.color); closeColorMenu(); }
+  if (b.dataset.color) { setColor(colorFor, b.dataset.color); closeColorMenu(); }
   else if (b.dataset.act === 'orig') { setColor(colorFor, null); closeColorMenu(); }
   else if (b.dataset.act === 'custom') {
     const m = loaded.find((x) => x.modelID === colorFor);
-    colorInput.value = m?.custom || colorHex(m?.color) || MODEL_COLORS[0];
+    colorInput.value = m?.custom || m?.color || PALETTE[0].hex;
     closeColorMenu();
     colorInput.click();
   }
@@ -359,7 +359,7 @@ async function loadBuffer(buffer, name, key = '') {
     res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
-    loaded.push({ modelID: res.modelID, name, size, elements: res.elements, tris, visible: true, color: null, custom: null });
+    loaded.push({ modelID: res.modelID, name, size, schema: res.schema || '', elements: res.elements, tris, visible: true, color: null, custom: null });
     const s = Math.max((performance.now() - t0) / 1000, 0.1).toLocaleString('cs-CZ', { maximumFractionDigits: 1 });
     const warn = [...(res.aligned ? [] : [MISALIGNED]), ...(res.simplified ? [simplifiedText(res.simplified)] : [])].join(' ');
     if (warn) notes.push(`${name}: ${warn}`);

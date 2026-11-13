@@ -240,14 +240,23 @@ export class Viewer {
     this.scene.add(this.grid);
   }
 
-  fitView() {
-    if (this.bbox.isEmpty()) return;
-    const c = this.bbox.getCenter(new THREE.Vector3());
-    const r = this.bbox.getSize(new THREE.Vector3()).length() / 2;
+  /** Pohled na jeden model (klepnutí na název v seznamu načtených modelů). */
+  fitModel(modelID) {
+    const box = new THREE.Box3(), b = new THREE.Box3();
+    for (const m of this.meshes) if (m.userData.modelID === modelID) box.union(b.copy(m.geometry.boundingBox).applyMatrix4(m.parent.matrix));
+    this.fitView(box);
+  }
+
+  /** Pohled na obálku `box` (výchozí: všechny modely). */
+  fitView(box = this.bbox) {
+    if (box.isEmpty()) return;
+    const c = box.getCenter(new THREE.Vector3());
+    const r = box.getSize(new THREE.Vector3()).length() / 2;
     const d = r / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2));
     this.camera.position.copy(c).add(new THREE.Vector3(0.7, 0.5, 0.9).normalize().multiplyScalar(d));
     this.camera.near = Math.max(d / 1000, 0.02);
-    this.camera.far = d * 20 + 100;
+    // daleká rovina podle celé scény, aby při pohledu na jeden model nezmizely ostatní
+    this.camera.far = Math.max(d, this.bbox.getSize(new THREE.Vector3()).length()) * 20 + 100;
     this.camera.updateProjectionMatrix();
     this.controls.target.copy(c);
     this.controls.update();

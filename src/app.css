@@ -49,8 +49,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 /* nabídka barvy: paleta EBC, vlastní barva (výběr prohlížeče), původní barvy z IFC */
 .color-menu { position: fixed; z-index: 10; box-shadow: var(--ebc-shadow-dialog); }
 
-.color-menu__label { margin: var(--ebc-space-2) var(--ebc-space-4) var(--ebc-space-6); color: var(--ebc-color-text-secondary); }
-.color-menu__palette { display: flex; gap: var(--ebc-space-8); padding: 0 var(--ebc-space-4) var(--ebc-space-4); }
+.color-menu__label { padding: var(--ebc-space-2) var(--ebc-space-4) var(--ebc-space-4); }
+.color-menu__palette { display: grid; grid-template-columns: repeat(6, auto); justify-content: start; gap: var(--ebc-space-8); padding: var(--ebc-space-2) var(--ebc-space-4) var(--ebc-space-4); }
 .color-menu__palette .model__color { width: calc(var(--ebc-size-check) * 1.5); height: calc(var(--ebc-size-check) * 1.5); }
 .color-menu .ebc-menu__item[aria-checked="true"] { color: var(--ebc-color-text-accent); }
 .color-menu .ebc-menu__item .model__color { pointer-events: none; }
@@ -64,13 +64,19 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .side__drop .ebc-dropzone__progress { transition: width .15s; }
 
 /* načtené modely: zapnout/vypnout, barva, odebrat */
-.model__toggle { flex: 1; min-width: 0; }
-.model-list > li.is-hidden .model__name { color: var(--ebc-color-text-secondary); }
+/* načtené modely: řádky jako v IFC vieweru (zobrazit, barva, název s podtitulkem, velikost, odebrat) */
+.model-files { max-height: none; overflow: visible; }
+.ebc-filelist > .model-file { flex-wrap: wrap; gap: var(--ebc-space-4) var(--ebc-space-8); padding-left: var(--ebc-space-4); border-bottom: var(--ebc-border-width-thin) solid var(--ebc-color-list-separator); }
+.model-file__name { flex: 1; min-width: 0; display: grid; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.model-file__name:hover .ebc-filelist__name { color: var(--ebc-color-text-link); }
+.model-file__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ebc-color-text-secondary); font-size: var(--ebc-font-size-xs); }
+.model-file__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.model-file.is-hidden .ebc-filelist__name { color: var(--ebc-color-text-secondary); }
 .model__color {
   flex: none; padding: 0; cursor: pointer;
   width: var(--ebc-size-check); height: var(--ebc-size-check); border-radius: 50%;
   border: var(--ebc-border-width-medium) solid var(--ebc-color-border-default);
-  background: var(--swatch);
+  background: var(--swatch, transparent);
 }
 .model__color:hover, .model__color[aria-checked="true"] { border-color: var(--ebc-color-accent-default); }
 /* původní barvy z IFC: kolečko ze všech barev palety */
