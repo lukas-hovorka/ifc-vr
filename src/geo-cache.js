@@ -3,7 +3,8 @@
 // indexů a stromu pro výběr. Záznam platí pro název + velikost + datum změny souboru a verzi
 // zpracování; při změně výpočtu geometrie se zvedne VERSION a staré záznamy se nepoužijí.
 
-const VERSION = 1;
+/** 2: křídla dveří (meta.doors, klíč skupiny barvy) */
+const VERSION = 2;
 const DB = 'ifc-vr-geometrie';
 /** Mezipaměť nesmí zabrat víc než tolik z místa, které prohlížeč stránce dovolí. */
 const SHARE = 0.5;

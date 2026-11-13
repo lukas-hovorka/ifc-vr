@@ -6,6 +6,7 @@ import * as WebIFC from 'web-ifc';
 import { BufferGeometry, BufferAttribute } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
+import { findLeaves, NOT_SWINGING } from './doors.js';
 
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
@@ -178,6 +179,45 @@ function openIn(a, fn) {
 /** Soubor právě načítaného modelu (nastaví zpracování zprávy load). */
 let currentBuffer = null;
 
+/** Vrcholy z web-ifc (x, y, z, nx, ny, nz…) převedené maticí m do polí P (polohy) a N (normály) od indexu o. */
+function transform(verts, m, P, N, o) {
+  for (let i = 0; i < verts.length; i += 6) {
+    const x = verts[i], y = verts[i + 1], z = verts[i + 2];
+    P[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
+    P[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+    P[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    if (N) {
+      const a = verts[i + 3], bb = verts[i + 4], cc = verts[i + 5];
+      const nx = m[0] * a + m[4] * bb + m[8] * cc;
+      const ny = m[1] * a + m[5] * bb + m[9] * cc;
+      const nz = m[2] * a + m[6] * bb + m[10] * cc;
+      const l = Math.hypot(nx, ny, nz) || 1;
+      N[o] = nx / l; N[o + 1] = ny / l; N[o + 2] = nz / l;
+    }
+    o += 3;
+  }
+}
+
+/** Typ otevírání dveří (OperationType z dveří, v IFC2X3 z jejich typu / stylu). */
+function doorOps(modelID, doorIds) {
+  const ops = new Map();
+  if (!doorIds.size) return ops;
+  try {
+    for (const r of idsOfType(modelID, WebIFC.IFCRELDEFINESBYTYPE)) {
+      const l = api.GetLine(modelID, r);
+      const objs = (l.RelatedObjects || []).filter((o) => doorIds.has(o.value));
+      if (!objs.length || !l.RelatingType) continue;
+      const op = val(api.GetLine(modelID, l.RelatingType.value).OperationType);
+      if (op) for (const o of objs) ops.set(o.value, String(op));
+    }
+    for (const d of doorIds) {
+      const op = val(api.GetLine(modelID, d).OperationType);
+      if (op && op !== 'NOTDEFINED') ops.set(d, String(op));
+    }
+  } catch (e) { console.warn('Typ otevírání dveří nejde přečíst', e); }
+  return ops;
+}
+
 /** Geometrie modelu sloučená podle barvy, se stromem pro výběr; meta = údaje pro prohlížeč. */
 function buildGeometry(modelID) {
   const schema = api.GetModelSchema(modelID);
@@ -188,6 +228,40 @@ function buildGeometry(modelID) {
 
   const buckets = new Map();
   let elements = 0;
+  // dveře: díly se před zápisem roztřídí na zárubeň a křídla (křídla jdou v prohlížeči otočit)
+  const doorIds = new Set(idsOfType(modelID, WebIFC.IFCDOOR));
+  const ops = doorOps(modelID, doorIds);
+  const doors = [];
+
+  const bucketFor = (c) => {
+    const key = `${Math.round(c.x * 255)},${Math.round(c.y * 255)},${Math.round(c.z * 255)},${Math.round(c.w * 255)}`;
+    let b = buckets.get(key);
+    if (!b) {
+      b = { key, color: [c.x, c.y, c.z, c.w], pos: new Grow(Float32Array), nrm: new Grow(Float32Array), idx: new Grow(Uint32Array), ranges: [] };
+      buckets.set(key, b);
+    }
+    return b;
+  };
+  /** Zapíše díl do skupiny podle barvy; vrátí [klíč skupiny, začátek, počet indexů]. */
+  const append = (id, b, verts, m, inds) => {
+    const vCount = verts.length / 6;
+    const base = b.pos.n / 3;
+    b.pos.reserve(vCount * 3);
+    b.nrm.reserve(vCount * 3);
+    transform(verts, m, b.pos.a, b.nrm.a, b.pos.n);
+    b.pos.n += vCount * 3; b.nrm.n = b.pos.n;
+    const start = b.idx.n;
+    b.idx.reserve(inds.length);
+    const I = b.idx.a;
+    for (let i = 0; i < inds.length; i++) I[start + i] = inds[i] + base;
+    b.idx.n += inds.length;
+    // rozsahy indexů po prvcích: [start, počet, expressID]
+    const r = b.ranges, L = r.length;
+    if (L && r[L - 1] === id && r[L - 3] + r[L - 2] === start) r[L - 2] += inds.length;
+    else r.push(start, inds.length, id);
+    return [b.key, start, inds.length];
+  };
+
   // průběh: web-ifc počítá index zvlášť pro každý typ prvku, proto vlastní počítadlo proti všem IfcProduct
   const expected = Math.max(api.GetLineIDsWithType(modelID, WebIFC.IFCPRODUCT, true).size(), 1);
   let streamed = 0;
@@ -201,51 +275,47 @@ function buildGeometry(modelID) {
     if (skip.has(id)) return;
     elements++;
     const geoms = mesh.geometries;
+    if (doorIds.has(id)) {
+      try { addDoor(id, geoms); return; } catch (e) { console.warn('Dveře nejde rozdělit na křídla', id, e); }
+    }
     for (let g = 0; g < geoms.size(); g++) {
       const pg = geoms.get(g);
-      const c = pg.color;
-      const key = `${Math.round(c.x * 255)},${Math.round(c.y * 255)},${Math.round(c.z * 255)},${Math.round(c.w * 255)}`;
-      let b = buckets.get(key);
-      if (!b) {
-        b = { color: [c.x, c.y, c.z, c.w], pos: new Grow(Float32Array), nrm: new Grow(Float32Array), idx: new Grow(Uint32Array), ranges: [] };
-        buckets.set(key, b);
-      }
       const geom = api.GetGeometry(modelID, pg.geometryExpressID);
       const verts = api.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize());
       const inds = api.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize());
-      const m = pg.flatTransformation;
-      const vCount = verts.length / 6;
-      const base = b.pos.n / 3;
-      b.pos.reserve(vCount * 3);
-      b.nrm.reserve(vCount * 3);
-      const P = b.pos.a, N = b.nrm.a;
-      let o = b.pos.n;
-      for (let i = 0; i < verts.length; i += 6) {
-        const x = verts[i], y = verts[i + 1], z = verts[i + 2];
-        P[o] = m[0] * x + m[4] * y + m[8] * z + m[12];
-        P[o + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
-        P[o + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
-        const a = verts[i + 3], bb = verts[i + 4], cc = verts[i + 5];
-        let nx = m[0] * a + m[4] * bb + m[8] * cc;
-        let ny = m[1] * a + m[5] * bb + m[9] * cc;
-        let nz = m[2] * a + m[6] * bb + m[10] * cc;
-        const l = Math.hypot(nx, ny, nz) || 1;
-        N[o] = nx / l; N[o + 1] = ny / l; N[o + 2] = nz / l;
-        o += 3;
-      }
-      b.pos.n = o; b.nrm.n = o;
-      const start = b.idx.n;
-      b.idx.reserve(inds.length);
-      const I = b.idx.a;
-      for (let i = 0; i < inds.length; i++) I[start + i] = inds[i] + base;
-      b.idx.n += inds.length;
-      // rozsahy indexů po prvcích: [start, počet, expressID]
-      const r = b.ranges, L = r.length;
-      if (L && r[L - 1] === id && r[L - 3] + r[L - 2] === start) r[L - 2] += inds.length;
-      else r.push(start, inds.length, id);
+      append(id, bucketFor(pg.color), verts, pg.flatTransformation, inds);
       geom.delete();
     }
   });
+
+  /** Dveře: napřed díly zárubně, potom každé křídlo zvlášť (souvislé rozsahy, prohlížeč je vyjme). */
+  function addDoor(id, geoms) {
+    const parts = [];
+    for (let g = 0; g < geoms.size(); g++) {
+      const pg = geoms.get(g);
+      const geom = api.GetGeometry(modelID, pg.geometryExpressID);
+      const verts = api.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize()).slice();
+      const inds = api.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize()).slice();
+      geom.delete();
+      const pos = new Float32Array(verts.length / 2);
+      transform(verts, pg.flatTransformation, pos, null, 0);
+      parts.push({ pg: { color: { x: pg.color.x, y: pg.color.y, z: pg.color.z, w: pg.color.w }, m: Array.from(pg.flatTransformation) }, verts, inds, pos, alpha: pg.color.w });
+    }
+    const op = ops.get(id) || '';
+    const found = NOT_SWINGING.test(op) ? null : findLeaves(parts, op);
+    const inLeaf = new Set(found ? found.leaves.flatMap((l) => l.parts) : []);
+    for (let i = 0; i < parts.length; i++) {
+      if (!inLeaf.has(i)) append(id, bucketFor(parts[i].pg.color), parts[i].verts, parts[i].pg.m, parts[i].inds);
+    }
+    if (!found) return;
+    doors.push({
+      id,
+      leaves: found.leaves.map((l) => ({
+        segs: l.parts.map((i) => append(id, bucketFor(parts[i].pg.color), parts[i].verts, parts[i].pg.m, parts[i].inds)),
+        u: l.u, v: l.v, hinge: l.hinge, half: l.half,
+      })),
+    });
+  }
 
   // posun, o který web-ifc model přesunul k počátku: podle něj prohlížeč zarovná modely mezi sebou
   const coord = Array.from(api.GetCoordinationMatrix(modelID));
@@ -258,6 +328,7 @@ function buildGeometry(modelID) {
   progress('bvh', 0);
   for (const b of list) {
     const item = {
+      key: b.key,
       color: b.color,
       position: b.pos.result(),
       normal: b.nrm.result(),
@@ -282,7 +353,7 @@ function buildGeometry(modelID) {
     progress('bvh', doneTris / totalTris);
     out.push(item);
   }
-  return { meta: { schema, elements, simplified, coord }, buckets: out, transfer };
+  return { meta: { schema, elements, simplified, coord, doors }, buckets: out, transfer };
 }
 
 /**

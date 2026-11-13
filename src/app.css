@@ -87,6 +87,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 
 .info__name { font: var(--ebc-typography-subtitle); margin: 0; overflow-wrap: anywhere; }
 .info__sub { margin: 0; color: var(--ebc-color-text-secondary); }
+.info__door { display: flex; align-items: center; gap: var(--ebc-space-8); }
 .info .ebc-table-wrap { max-height: 40vh; }
 .info .ebc-table td { overflow-wrap: anywhere; }
 .info .ebc-table td:first-child { color: var(--ebc-color-text-secondary); width: 45%; }

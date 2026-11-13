@@ -10,6 +10,9 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
 /** Modely dál od sebe než tolik metrů mají jiný souřadnicový systém a nezarovnávají se. */
 const FAR_APART = 10000;
+/** Otevření dveří (90°) trvá tolik sekund. */
+const DOOR_TIME = 0.8;
+const doorKey = (ref) => `${ref.model}:${ref.id}`;
 
 export class Viewer {
   constructor(container) {
@@ -46,6 +49,10 @@ export class Viewer {
     /** posun prvního modelu k počátku (coord z web-ifc); další modely se k němu vztahují */
     this.refMatrix = null;
     this.bbox = new THREE.Box3();
+    /** "model:id" → dveře s křídly z workeru ({ leaves, open }); křídla se z modelu vyjmou při prvním otevření */
+    this.doors = new Map();
+    /** dveře, jejichž křídla se právě otáčejí */
+    this.swinging = new Set();
 
     this.ground = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
@@ -83,6 +90,7 @@ export class Viewer {
       if (xr !== this.wasPresenting) { this.wasPresenting = xr; this.dirty = true; }
       if (!xr) this.controls.update(); // tlumení dobíhá přes událost change
       this.onBeforeRender?.(dt, frame);
+      this.tickDoors(dt);
       if (!xr && !this.dirty) return;
       this.dirty = false;
       this.renderer.render(this.scene, this.camera);
@@ -120,6 +128,8 @@ export class Viewer {
     for (const g of this.groups.values()) g.removeFromParent();
     this.groups.clear();
     this.refMatrix = null;
+    this.doors.clear();
+    this.swinging.clear();
     this.modelRoot.position.set(0, 0, 0);
     this.modelRoot.quaternion.identity();
     this.modelRoot.scale.setScalar(1);
@@ -131,7 +141,7 @@ export class Viewer {
    * `coord` = posun modelu k počátku z web-ifc: model se maticí umístí do souřadnic prvního modelu.
    * Vrátí false, když je model dál než FAR_APART (jiný souřadnicový systém) a zůstal v počátku.
    */
-  addModel(modelID, buckets, fit = true, coord = null) {
+  addModel(modelID, buckets, fit = true, coord = null, doors = []) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
     group.userData.modelID = modelID;
@@ -173,12 +183,14 @@ export class Viewer {
       mesh.userData.origColor = mat.color.clone();
       mesh.userData.ranges = b.ranges;
       mesh.userData.modelID = modelID;
+      mesh.userData.key = b.key;
       mesh.renderOrder = transparent ? 1 : 0;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
       mesh.updateMatrixWorld(true);
       this.meshes.push(mesh);
     }
+    for (const d of doors || []) this.doors.set(doorKey({ model: modelID, id: d.id }), { ...d, model: modelID, open: false });
     this.updateBounds();
     if (fit) this.fitView();
     this.invalidate();
@@ -209,6 +221,7 @@ export class Viewer {
     this.meshes = this.meshes.filter((m) => m.userData.modelID !== modelID);
     this.groups.get(modelID)?.removeFromParent();
     this.groups.delete(modelID);
+    for (const [k, d] of this.doors) if (d.model === modelID) { this.doors.delete(k); this.swinging.delete(d); }
     if (!this.groups.size) this.refMatrix = null;
     this.updateBounds();
   }
@@ -217,7 +230,7 @@ export class Viewer {
   updateBounds() {
     this.bbox.makeEmpty();
     const box = new THREE.Box3();
-    for (const m of this.meshes) this.bbox.union(box.copy(m.geometry.boundingBox).applyMatrix4(m.parent.matrix));
+    for (const m of this.meshes) if (!m.userData.isLeaf) this.bbox.union(box.copy(m.geometry.boundingBox).applyMatrix4(m.parent.matrix));
     this.updateGround();
   }
 
@@ -330,6 +343,119 @@ export class Viewer {
       mesh.add(h);
       this.highlight.push(h);
     }
+  }
+
+  // ---------- dveře ----------
+  /** Má prvek { model, id } křídla, která jdou otevřít? */
+  isDoor(ref) { return !!ref && this.doors.has(doorKey(ref)); }
+  isDoorOpen(ref) { return !!ref && !!this.doors.get(doorKey(ref))?.open; }
+
+  /**
+   * Otevře / zavře dveře { model, id }. Křídlo se otočí o 90° kolem pantu, od pozorovatele (aby do něj
+   * nenarazilo). Vrátí nový stav (true = otevřené), nebo null, když prvek nejsou dveře s křídly.
+   */
+  toggleDoor(ref) {
+    const d = ref && this.doors.get(doorKey(ref));
+    const group = d && this.groups.get(d.model);
+    if (!group) return null;
+    if (!d.built) this.buildLeaves(d, group);
+    d.open = !d.open;
+    if (d.open) {
+      const cam = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
+      group.updateWorldMatrix(true, false);
+      const eye = group.worldToLocal(cam.getWorldPosition(new THREE.Vector3()));
+      for (const l of d.leaves) {
+        const [hx, hz] = l.hinge, [ux, uz] = l.u, [vx, vz] = l.v;
+        const side = Math.sign((eye.x - hx) * vx + (eye.z - hz) * vz) || 1;
+        // pant na straně křídla odvrácené od pozorovatele
+        const px = hx - side * vx * l.half, pz = hz - side * vz * l.half;
+        l.pivot.position.set(px, 0, pz);
+        for (const m of l.meshes) m.position.set(-px, 0, -pz);
+        // otočení o +90° kolem osy Y posune směr u na (uz, −ux); volný kraj má jít od pozorovatele (−side · v)
+        l.target = (Math.PI / 2) * Math.sign(uz * vx - ux * vz) * -side;
+      }
+    } else for (const l of d.leaves) l.target = 0;
+    this.swinging.add(d);
+    this.invalidate();
+    return d.open;
+  }
+
+  /** Vyjme trojúhelníky křídel ze sloučené geometrie modelu do vlastních objektů s pantem. */
+  buildLeaves(d, group) {
+    const byKey = new Map();
+    for (const m of this.meshes) if (m.userData.modelID === d.model && !m.userData.isLeaf) byKey.set(m.userData.key, m);
+    for (const l of d.leaves) {
+      l.pivot = new THREE.Object3D();
+      l.angle = 0;
+      l.target = 0;
+      l.meshes = [];
+      group.add(l.pivot);
+      // díly křídla podle skupiny barvy (jedna skupina = jeden objekt se stejným materiálem)
+      const segsBy = new Map();
+      for (const [key, start, count] of l.segs) (segsBy.get(key) || segsBy.set(key, []).get(key)).push([start, count]);
+      for (const [key, segs] of segsBy) {
+        const src = byKey.get(key);
+        if (!src) continue;
+        const sg = src.geometry, idx = sg.index.array;
+        const P = sg.getAttribute('position').array, N = sg.getAttribute('normal').array;
+        const map = new Map();
+        const total = segs.reduce((n, s) => n + s[1], 0);
+        const ni = new Uint32Array(total);
+        const pos = [], nrm = [];
+        let o = 0;
+        for (const [start, count] of segs) {
+          for (let i = start; i < start + count; i++) {
+            const v = idx[i];
+            let k = map.get(v);
+            if (k === undefined) {
+              k = map.size;
+              map.set(v, k);
+              pos.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+              nrm.push(N[v * 3], N[v * 3 + 1], N[v * 3 + 2]);
+            }
+            ni[o++] = k;
+          }
+          // ve sloučené geometrii se trojúhelníky křídla stáhnou do bodu (nekreslí se a nejdou vybrat)
+          idx.fill(idx[start], start, start + count);
+          sg.index.addUpdateRange(start, count);
+        }
+        sg.index.needsUpdate = true;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+        g.setIndex(new THREE.BufferAttribute(ni, 1));
+        g.computeBoundingBox();
+        g.computeBoundingSphere();
+        const mesh = new THREE.Mesh(g, src.material);
+        mesh.userData = { modelID: d.model, key, isLeaf: true, origColor: src.userData.origColor, ranges: Uint32Array.of(0, total, d.id) };
+        mesh.renderOrder = src.renderOrder;
+        mesh.visible = src.visible;
+        l.pivot.add(mesh);
+        l.meshes.push(mesh);
+        this.meshes.push(mesh);
+      }
+    }
+    d.built = true;
+    // zvýraznění vybraných dveří se kreslí z indexů – po vyjmutí křídel znovu
+    if (this.selectedId && doorKey(this.selectedId) === doorKey({ model: d.model, id: d.id })) this.setHighlight(this.selectedId);
+  }
+
+  /** Otáčení křídel (volá se každý snímek). */
+  tickDoors(dt) {
+    if (!this.swinging.size) return;
+    const step = (Math.PI / 2) * (dt / DOOR_TIME);
+    for (const d of this.swinging) {
+      let moving = false;
+      for (const l of d.leaves) {
+        if (!l.pivot) continue;
+        const diff = l.target - l.angle;
+        l.angle = Math.abs(diff) <= step ? l.target : l.angle + Math.sign(diff) * step;
+        l.pivot.rotation.y = l.angle;
+        if (l.angle !== l.target) moving = true;
+      }
+      if (!moving) this.swinging.delete(d);
+    }
+    this.invalidate();
   }
 
   /** AR: průhledné pozadí a bez mřížky (je vidět okolí). */

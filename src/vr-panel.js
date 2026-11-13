@@ -12,6 +12,7 @@ export const HELP = [
   ['Pravá páčka dopředu', 'teleport, do stran otočení'],
   ['A / B', 'nahoru / dolů'],
   ['Pravá spoušť', 'vybrat prvek, tlačítko panelu'],
+  ['Spoušť znovu na dveře', 'otevřít / zavřít'],
   ['Úchop (maketa)', 'posunout, oběma rukama zvětšit'],
   ['X / Y', 'skrýt panel / přepnout měřítko'],
 ];

@@ -113,7 +113,12 @@ let modelName = '';
 let loading = false;
 
 const xr = new XRControls(viewer, {
-  onSelect: (id) => select(id),
+  // spoušť znovu na vybrané dveře: otevřít / zavřít
+  onSelect: (id) => {
+    const cur = viewer.selectedId;
+    if (id && cur && id.model === cur.model && id.id === cur.id && viewer.isDoor(id)) toggleDoor(id);
+    else select(id);
+  },
 });
 viewer.onBeforeRender = (dt) => xr.update(dt);
 
@@ -356,7 +361,7 @@ async function loadBuffer(buffer, name, key = '') {
     await ready;
     const size = buffer.byteLength;
     const res = await call('load', { buffer, key, name }, [buffer]);
-    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord);
+    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, schema: res.schema || '', elements: res.elements, tris, visible: true, color: null, custom: null });
@@ -547,6 +552,31 @@ async function select(ref) {
   if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
   xr.panel.set({ info });
   renderInfo(info);
+  renderDoor(ref);
+}
+
+// ---------- dveře: křídlo se otočí kolem pantu ----------
+function toggleDoor(ref) {
+  if (viewer.toggleDoor(ref) == null) return;
+  if (viewer.selectedId && ref.model === viewer.selectedId.model && ref.id === viewer.selectedId.id) renderDoor(ref);
+}
+
+/** Tlačítko Otevřít / Zavřít dveře v panelu vybraného prvku. */
+function renderDoor(ref) {
+  ui.info.querySelector('.info__door')?.remove();
+  if (!viewer.isDoor(ref)) return;
+  const row = document.createElement('div');
+  row.className = 'info__door';
+  const b = document.createElement('button');
+  b.className = 'ebc-btn';
+  b.type = 'button';
+  b.textContent = viewer.isDoorOpen(ref) ? 'Zavřít dveře' : 'Otevřít dveře';
+  b.addEventListener('click', () => toggleDoor(ref));
+  const hint = document.createElement('span');
+  hint.className = 'ebc-small info__sub';
+  hint.textContent = 'nebo dvojklik na dveře';
+  row.append(b, hint);
+  ui.info.querySelector('.info__sub')?.after(row);
 }
 
 function renderInfo(info) {
@@ -596,6 +626,11 @@ canvas.addEventListener('pointerup', (e) => {
   down = null;
   const hit = viewer.pickAtScreen(e.clientX, e.clientY);
   select(hit ? hit.id : null);
+});
+// dvojklik na dveře: otevřít / zavřít
+canvas.addEventListener('dblclick', (e) => {
+  const hit = viewer.pickAtScreen(e.clientX, e.clientY);
+  if (hit?.id && viewer.isDoor(hit.id)) toggleDoor(hit.id);
 });
 
 // ---------- WebXR ----------

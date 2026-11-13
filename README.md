@@ -6,13 +6,18 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - načtení IFC přetažením, výběrem souboru, ze složky `models/` nebo přes `?model=a.ifc&model=b.ifc`
 - **více modelů najednou** (např. profese stavby): sedí na sebe podle souřadnic prvního modelu; model se
   souřadnicemi dál než 10 km se umístí do počátku. Načtené modely jde jednotlivě skrýt, přebarvit jednou
-  barvou (kolečko vedle názvu, opakovaným klepnutím se střídají barvy a původní barvy z IFC) a odebrat –
+  barvou (kolečko vedle názvu: 12 barev, vlastní barva nebo původní barvy z IFC; ve VR se klepnutím střídají),
+  přiblížit (klepnutí na název) a odebrat –
   na počítači v panelu vlevo, ve VR na záložce **Modely** panelu u levé ruky (tam i *Přidat soubor*,
   které ukončí VR a otevře výběr souborů)
 - **VR 1:1**: procházení modelem ve skutečné velikosti (teleport, chůze, let nahoru/dolů)
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
 - výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství) na panelu u levé ruky
+- **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
+  nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
+  podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
+  a otočné dveře se neotevírají.
 
 Technika: [three.js](https://threejs.org), [web-ifc](https://github.com/ThatOpen/engine_web-ifc) ve Web Workeru
 (geometrie se slučuje podle barvy kvůli výkonu brýlí), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)
@@ -78,6 +83,7 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | Pravá páčka do stran | otočení o 30° |
 | A / B | nahoru / dolů |
 | Pravá spoušť | vybrat prvek, stisknout tlačítko na panelu |
+| Pravá spoušť znovu na vybrané dveře | otevřít / zavřít |
 | Úchop (maketa) | jednou rukou posunout, oběma otočit a zvětšit |
 | X | skrýt / zobrazit panel |
 | Y | přepnout Skutečné 1:1 / Maketa |
