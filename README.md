@@ -101,6 +101,20 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 
 ## Výkon
 
+Úroveň zobrazení (v panelu na počítači i ve VR, pamatuje se v prohlížeči) mění jen to, co je vidět:
+
+| | Kvalita | Vyvážené (výchozí) | Výkon |
+|---|---|---|---|
+| Rozlišení na počítači (násobek displeje, strop) | 2× | 1,5× | 1× |
+| Rozlišení v brýlích | plné rozlišení displeje | 100 % | 80 % |
+| Ostrost okrajů zorného pole v brýlích (foveace) | plná | střední | snížená |
+| Frekvence brýlí | 90 Hz | 72 Hz | 72 Hz |
+| Rubové strany ploch (pohled zevnitř zdi, plochy s otočenou normálou) | kreslí se | ne | ne |
+| Okna a sklo | průhledná | průhledná | neprůhledná |
+
+Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. Úspory, které nejsou vidět, platí
+ve všech úrovních:
+
 - Zpracovaná geometrie se ukládá do mezipaměti prohlížeče (IndexedDB). Další otevření stejného souboru
   (stejný název, velikost a datum změny) přeskočí výpočet geometrie; IFC se pak otevře už jen kvůli
   vlastnostem prvků, na pozadí. Mezipaměť zabere nejvýš polovinu místa, které prohlížeč dovolí (max. 6 GB),

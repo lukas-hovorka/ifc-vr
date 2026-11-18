@@ -1,6 +1,9 @@
 // Panel ve VR na levém ovladači: kreslí se do canvasu podle EBC_UI_vibe, ovládá se paprskem z pravého ovladače.
 import * as THREE from 'three';
 import { t, px, font } from './theme.js';
+import { QUALITY } from './quality.js';
+
+const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 
 const W = 1024;          // šířka canvasu v px
 const H = 1700;          // výška canvasu v px
@@ -39,6 +42,8 @@ export class VRPanel {
     this.actions = {};
     /** Akce s modelem: (op 'vis' | 'col' | 'del', modelID) */
     this.onModel = null;
+    /** Volba úrovně zobrazení (klíč z QUALITY) */
+    this.onQuality = null;
     this.draw();
   }
 
@@ -66,6 +71,7 @@ export class VRPanel {
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
     if (r.key === 'tab-info' || r.key === 'tab-models') { this.state.tab = r.key.slice(4); this.draw(); return true; }
+    if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -260,6 +266,13 @@ export class VRPanel {
     this.button('reset', 'Na začátek', pad, y, third);
     this.button('grid', 'Mřížka', pad + third + gap, y, third, { active: st.grid !== false });
     this.button('exit', 'Ukončit VR', pad + 2 * (third + gap), y, third);
+    y += bh + pad;
+
+    // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
+    y += this.sectionLabel('Zobrazení', pad, y);
+    QUALITY_KEYS.forEach(([key, label], i) => {
+      this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
+    });
     y += bh + pad;
 
     // záložky: vybraný prvek / modely

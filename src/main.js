@@ -1,4 +1,5 @@
 import { Viewer } from './viewer.js';
+import { QUALITY, loadQuality, saveQuality } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
@@ -39,6 +40,7 @@ const ui = {
   loadedSec: $('loaded-sec'), loaded: $('loaded'), loadedCount: $('loaded-count'),
   progressSec: $('progress-sec'), progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
+  quality: $('quality'), qualityHint: $('quality-hint'),
 };
 
 const viewer = new Viewer($('viewport'));
@@ -663,7 +665,9 @@ async function enterXR(mode) {
       optionalFeatures: ['bounded-floor', 'hand-tracking'],
     });
     viewer.renderer.xr.setReferenceSpaceType('local-floor');
+    viewer.prepareXR(session);
     await viewer.renderer.xr.setSession(session);
+    viewer.applyFrameRate();
     xr.start(ar);
     session.addEventListener('end', () => xr.end(), { once: true });
   } catch (err) {
@@ -674,6 +678,28 @@ ui.btnVR.addEventListener('click', () => enterXR('immersive-vr'));
 ui.btnAR.addEventListener('click', () => enterXR('immersive-ar'));
 
 setStatus('Vyberte jeden nebo více souborů IFC.');
+
+// ---------- úroveň zobrazení: Kvalita / Vyvážené / Výkon (pamatuje se v prohlížeči) ----------
+function setQuality(key) {
+  const q = QUALITY[key];
+  if (!q) return;
+  saveQuality(key);
+  viewer.setQuality(q);
+  for (const b of ui.quality.querySelectorAll('[data-q]')) b.setAttribute('aria-pressed', String(b.dataset.q === key));
+  ui.qualityHint.textContent = q.hint;
+  xr.panel.set({ quality: key });
+}
+for (const [key, q] of Object.entries(QUALITY)) {
+  const b = document.createElement('button');
+  b.className = 'ebc-filter';
+  b.type = 'button';
+  b.dataset.q = key;
+  b.textContent = q.label;
+  b.addEventListener('click', () => setQuality(key));
+  ui.quality.appendChild(b);
+}
+xr.panel.onQuality = (key) => setQuality(key);
+setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select };
 

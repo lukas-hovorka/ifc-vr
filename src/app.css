@@ -28,6 +28,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
   padding: 0 var(--ebc-space-20) var(--ebc-space-20);
   overflow-y: auto;
 }
+/* obsah panelu se roluje, nesmí se smršťovat (dlouhý stavový text by přetekl přes tlačítka) */
+.side__body > * { flex-shrink: 0; }
 .side__drop { min-height: 140px; padding: var(--ebc-space-24); }
 .side__section { display: flex; flex-direction: column; gap: var(--ebc-space-6); }
 .side__section .ebc-group-label { margin: 0; color: var(--ebc-color-text-accent); text-transform: uppercase; }
@@ -45,6 +47,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .model-list .model__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; }
 .side__count { color: var(--ebc-color-text-secondary); text-transform: none; }
 .side__contact { margin: 0; color: var(--ebc-color-text-secondary); }
+.side__quality { display: flex; gap: var(--ebc-space-8); }
+.side__quality .ebc-filter { flex: 1; }
 
 /* nabídka barvy: paleta EBC, vlastní barva (výběr prohlížeče), původní barvy z IFC */
 .color-menu { position: fixed; z-index: 10; box-shadow: var(--ebc-shadow-dialog); }

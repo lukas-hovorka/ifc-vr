@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshBVH, computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { t } from './theme.js';
+import { QUALITY } from './quality.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -21,8 +22,9 @@ export class Viewer {
     this.container = container;
     // high-performance: v noteboocích se dvěma grafikami si prohlížeč vyžádá výkonnou (dedikovanou) kartu
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    // strop 1,5: na displejích s vysokým rozlišením by 2× znamenalo skoro dvojnásobek pixelů (s vyhlazováním)
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    /** úroveň zobrazení (quality.js); rozlišení, rubové strany, sklo, ve VR ostrost okrajů a frekvence */
+    this.quality = QUALITY.balanced;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatio));
     this.renderer.xr.enabled = true;
     container.appendChild(this.renderer.domElement);
 
@@ -103,6 +105,52 @@ export class Viewer {
     this.resize();
   }
 
+  /** Nastaví úroveň zobrazení (prvek QUALITY). Rozlišení v brýlích platí od dalšího vstupu do VR. */
+  setQuality(q) {
+    this.quality = q;
+    if (!this.renderer.xr.isPresenting) {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
+      this.resize();
+    }
+    this.renderer.xr.setFoveation(q.foveation);
+    this.applyFrameRate();
+    const done = new Set();
+    for (const m of this.meshes) if (!done.has(m.material)) { done.add(m.material); this.applyMaterialQuality(m.material); }
+    this.invalidate();
+  }
+
+  /**
+   * Materiál podle úrovně: neprůhledné prvky jsou uzavřená tělesa, rubové strany se kreslí jen v Kvalitě
+   * (pohled zevnitř zdi, plochy s obrácenou normálou); ve Výkonu je sklo neprůhledné (průhlednost je drahá).
+   */
+  applyMaterialQuality(mat) {
+    const a = mat.userData.alpha ?? 1;
+    const transparent = a < 0.99 && this.quality.glass;
+    mat.transparent = transparent;
+    mat.opacity = transparent ? Math.max(a, 0.15) : 1;
+    mat.depthWrite = !transparent;
+    mat.side = transparent || this.quality.doubleSide ? THREE.DoubleSide : THREE.FrontSide;
+    mat.needsUpdate = true;
+  }
+
+  /** Rozlišení XR vrstvy pro novou relaci (volat před renderer.xr.setSession). */
+  prepareXR(session) {
+    let f = this.quality.xrScale;
+    if (f === 'native') f = globalThis.XRWebGLLayer?.getNativeFramebufferScaleFactor?.(session) || 1.2;
+    this.renderer.xr.setFramebufferScaleFactor(Math.min(Math.max(f, 0.5), 2));
+    this.renderer.xr.setFoveation(this.quality.foveation);
+  }
+
+  /** Obnovovací frekvence brýlí podle úrovně (nejbližší podporovaná nižší nebo stejná). */
+  applyFrameRate() {
+    const s = this.renderer.xr.getSession?.();
+    const rates = s?.supportedFrameRates;
+    if (!s?.updateTargetFrameRate || !rates?.length) return;
+    const list = [...rates].sort((a, b) => a - b);
+    const rate = list.filter((r) => r <= this.quality.fps).pop() || list[0];
+    s.updateTargetFrameRate(rate).catch((e) => console.warn('Frekvenci brýlí nejde nastavit', e));
+  }
+
   /** Vyžádá nové vykreslení (na počítači se kreslí jen po změně). */
   invalidate() { this.dirty = true; }
 
@@ -175,13 +223,9 @@ export class Viewer {
       else g.computeBoundsTree({ indirect: true });
       const [r, gg, bb, a] = b.color;
       const transparent = a < 0.99;
-      // neprůhledné prvky jsou uzavřená tělesa: zadní strany nejsou vidět a kreslit je je zbytečná práce
-      // (pohled zevnitř zdi/desky v VR je ukáže průhledně, jako běžné prohlížeče IFC)
-      const mat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace),
-        transparent, opacity: transparent ? Math.max(a, 0.15) : 1, depthWrite: !transparent,
-        side: transparent ? THREE.DoubleSide : THREE.FrontSide,
-      });
+      const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace) });
+      mat.userData.alpha = a;
+      this.applyMaterialQuality(mat);
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData.origColor = mat.color.clone();
       mesh.userData.ranges = b.ranges;
