@@ -252,6 +252,7 @@ function updateLoaded() {
     models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color })),
   });
   ui.loadedSec.hidden = !loaded.length;
+  $('remove-all').hidden = loaded.length < 2;
   ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
   const label = loaded.length === 1 ? loaded[0].name : loaded.length ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
   xr.panel.set({ modelName: label });
@@ -360,6 +361,20 @@ async function removeModel(modelID) {
   setStatus(`Model ${m.name} je odebraný.`);
   updateLoaded();
 }
+
+/** Odebere všechny načtené modely najednou. */
+async function removeAll() {
+  if (loading || !loaded.length) return;
+  const all = loaded.splice(0);
+  select(null);
+  for (const m of all) viewer.removeModel(m.modelID);
+  viewer.clear();
+  dropState('');
+  setStatus('Všechny modely jsou odebrané.');
+  updateLoaded();
+  for (const m of all) { try { await call('close', { modelID: m.modelID }); } catch (e) { console.warn(e); } }
+}
+$('remove-all').addEventListener('click', (e) => { e.preventDefault(); removeAll(); });
 
 /** key = totožnost souboru pro mezipaměť geometrie (název, velikost, datum změny) */
 async function loadBuffer(buffer, name, key = '') {

@@ -1,6 +1,7 @@
 // Ovládání ve VR / AR (Meta Quest 3): teleport, chůze, otáčení, let nahoru/dolů, výběr prvku,
 // maketa (model zmenšený před uživatelem, úchop a zvětšení oběma rukama).
 import * as THREE from 'three';
+import { GRID_BELOW } from './viewer.js';
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
 import { VRPanel } from './vr-panel.js';
 import { t } from './theme.js';
@@ -192,7 +193,7 @@ export class XRControls {
     const floorY = this.mode === 'full' ? v.floorY : 0;
     v.ground.position.y = floorY;
     v.ground.updateMatrixWorld();
-    if (v.grid) v.grid.position.y = floorY - 0.005;
+    if (v.grid) v.grid.position.y = floorY - GRID_BELOW;
     v.rig.updateMatrixWorld(true);
     v.modelRoot.updateMatrixWorld(true);
   }

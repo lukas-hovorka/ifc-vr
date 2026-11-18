@@ -46,6 +46,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .model-list .model__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-list .model__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; }
 .side__count { color: var(--ebc-color-text-secondary); text-transform: none; }
+.side__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ebc-space-8); }
 .side__contact { margin: 0; color: var(--ebc-color-text-secondary); }
 .side__quality { display: flex; gap: var(--ebc-space-8); }
 

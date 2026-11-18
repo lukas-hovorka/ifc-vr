@@ -13,6 +13,11 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const FAR_APART = 10000;
 /** Otevření dveří (90°) trvá tolik sekund. */
 const DOOR_TIME = 0.8;
+/**
+ * Mřížka leží kousek pod podlahou 1NP: ve stejné výšce by prosvítala přes podlahové desky (z-fighting)
+ * a desky s horní hranou o pár mm níž by překryla úplně.
+ */
+export const GRID_BELOW = 0.05;
 const doorKey = (ref) => `${ref.model}:${ref.id}`;
 /** Název podlaží 1NP (přízemí): „1NP“, „1.NP“, „1 NP_SO-101“…, ne „11NP“ ani „-1.PP“. */
 const FIRST_FLOOR = /(^|[^0-9])1\s*\.?\s*N\.?\s*P|přízemí|prizemi|ground\s*floor/i;
@@ -326,7 +331,7 @@ export class Viewer {
     const cell = [1, 5, 10, 50, 100].find((s) => extent / s <= 150) || 100;
     const div = Math.ceil(extent / cell);
     this.grid = new THREE.GridHelper(div * cell, div, t('color.border.default'), t('color.bg.control'));
-    this.grid.position.set(Math.round(c.x / cell) * cell, floorY - 0.005, Math.round(c.z / cell) * cell);
+    this.grid.position.set(Math.round(c.x / cell) * cell, floorY - GRID_BELOW, Math.round(c.z / cell) * cell);
     this.scene.add(this.grid);
   }
 
