@@ -42,6 +42,7 @@ const ui = {
   progressSec: $('progress-sec'), progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
   quality: $('quality'), qualityHint: $('quality-hint'),
+  actions: $('actions'), xrNote: $('xr-note'), qualitySec: $('quality-sec'), infoSec: $('info-sec'),
   btnMap: $('btn-map'), mapCard: $('map-card'), mapLevels: $('map-levels'), mapPlan: $('map-plan'), mapHint: $('map-hint'),
 };
 
@@ -656,8 +657,17 @@ function updateXRButtons() {
   const why = !window.isSecureContext ? 'VR vyžaduje zabezpečené připojení (https:// nebo localhost).'
     : !navigator.xr ? 'Prohlížeč nepodporuje WebXR. Otevřete stránku v prohlížeči Meta Quest.'
     : !hasModel ? 'Nejdřív načtěte model.' : '';
-  ui.btnMap.disabled = !hasModel || !planMap.levels().length;
-  ui.btnMap.title = !hasModel ? 'Nejdřív načtěte model.' : ui.btnMap.disabled ? 'Model nemá podlaží.' : 'Půdorys podlaží, klepnutím přesun na místo';
+  // bez modelu nemají akce, výběr prvku ani úroveň zobrazení smysl – skryté; co zařízení neumí, se neukazuje
+  ui.actions.hidden = ui.infoSec.hidden = ui.qualitySec.hidden = !hasModel;
+  ui.btnMap.hidden = !planMap.levels().length;
+  ui.btnMap.disabled = !hasModel;
+  ui.btnMap.title = 'Půdorys podlaží, klepnutím přesun na místo';
+  ui.btnVR.hidden = !support.vr;
+  ui.btnAR.hidden = !support.ar;
+  // počítač bez brýlí: místo tlačítek VR/AR jen poznámka, jak se do VR dostat
+  ui.xrNote.hidden = !hasModel || support.vr;
+  ui.xrNote.textContent = !window.isSecureContext ? 'VR vyžaduje zabezpečené připojení (https:// nebo localhost).'
+    : 'Do VR a AR se vstupuje v prohlížeči brýlí Meta Quest (stejná adresa stránky).';
   ui.btnVR.disabled = loading || !hasModel || !support.vr;
   ui.btnAR.disabled = loading || !hasModel || !support.ar;
   ui.btnVR.title = why || (!support.vr ? 'Zařízení nepodporuje VR.' : 'Prohlížet model v brýlích ve skutečné velikosti');

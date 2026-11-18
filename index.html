@@ -48,19 +48,20 @@
 
       <p class="ebc-small side__status" id="status" aria-live="polite"></p>
 
-      <div class="side__actions">
+      <div class="side__actions" id="actions" hidden>
         <button class="ebc-btn" id="btn-map" disabled>Mapa</button>
         <button class="ebc-btn" id="btn-ar" disabled>Vstoupit do AR</button>
         <button class="ebc-btn ebc-btn--primary" id="btn-vr" disabled>Vstoupit do VR</button>
       </div>
+      <p class="ebc-small side__contact" id="xr-note" hidden></p>
 
-      <section class="side__section">
+      <section class="side__section" id="quality-sec" hidden>
         <h2 class="ebc-group-label">Zobrazení</h2>
         <div class="side__quality" id="quality" role="group" aria-label="Úroveň zobrazení"></div>
         <p class="ebc-small side__contact" id="quality-hint"></p>
       </section>
 
-      <details class="ebc-expander" id="info-sec" open>
+      <details class="ebc-expander" id="info-sec" open hidden>
         <summary class="ebc-expander__header"><span>Vybraný prvek</span><span class="ebc-expander__summary" id="info-summary"></span></summary>
         <div class="ebc-expander__body" id="info"><p class="ebc-small ebc-caption">Klikněte na prvek v modelu.</p></div>
       </details>
