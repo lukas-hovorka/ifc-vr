@@ -361,7 +361,7 @@ async function loadBuffer(buffer, name, key = '') {
     await ready;
     const size = buffer.byteLength;
     const res = await call('load', { buffer, key, name }, [buffer]);
-    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors);
+    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, schema: res.schema || '', elements: res.elements, tris, visible: true, color: null, custom: null });

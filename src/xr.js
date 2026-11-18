@@ -171,7 +171,8 @@ export class XRControls {
       v.rig.quaternion.identity();
       // kamera má v rigu offset (poloha hlavy v místnosti) – kompenzovat ho v rovině
       const off = this.tmp.v.copy(cam.position); off.y = 0;
-      v.rig.position.set(c.x - off.x, v.groundY, bb.max.z + 3 - off.z);
+      // na podlaze 1NP (ne na spodku modelu – u budovy se suterénem by uživatel stál pod terénem)
+      v.rig.position.set(c.x - off.x, v.floorY, bb.max.z + 3 - off.z);
     } else {
       v.rig.position.y = 0;
       v.rig.updateMatrixWorld(true);
@@ -187,8 +188,8 @@ export class XRControls {
       m.scale.setScalar(s);
       m.position.set(target.x - c.x * s, target.y - bb.min.y * s, target.z - c.z * s);
     }
-    // podlaha (teleport a mřížka): u 1:1 spodek modelu, u makety podlaha místnosti
-    const floorY = this.mode === 'full' ? v.groundY : 0;
+    // podlaha (teleport a mřížka): u 1:1 podlaha 1NP, u makety podlaha místnosti
+    const floorY = this.mode === 'full' ? v.floorY : 0;
     v.ground.position.y = floorY;
     v.ground.updateMatrixWorld();
     if (v.grid) v.grid.position.y = floorY - 0.005;

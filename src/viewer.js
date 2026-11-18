@@ -13,6 +13,8 @@ const FAR_APART = 10000;
 /** Otevření dveří (90°) trvá tolik sekund. */
 const DOOR_TIME = 0.8;
 const doorKey = (ref) => `${ref.model}:${ref.id}`;
+/** Název podlaží 1NP (přízemí): „1NP“, „1.NP“, „1 NP_SO-101“…, ne „11NP“ ani „-1.PP“. */
+const FIRST_FLOOR = /(^|[^0-9])1\s*\.?\s*N\.?\s*P|přízemí|prizemi|ground\s*floor/i;
 
 export class Viewer {
   constructor(container) {
@@ -141,10 +143,11 @@ export class Viewer {
    * `coord` = posun modelu k počátku z web-ifc: model se maticí umístí do souřadnic prvního modelu.
    * Vrátí false, když je model dál než FAR_APART (jiný souřadnicový systém) a zůstal v počátku.
    */
-  addModel(modelID, buckets, fit = true, coord = null, doors = []) {
+  addModel(modelID, buckets, fit = true, coord = null, doors = [], storeys = []) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
     group.userData.modelID = modelID;
+    group.userData.storeys = storeys || [];
     let aligned = true;
     if (coord) {
       const C = new THREE.Matrix4().fromArray(coord);
@@ -236,20 +239,50 @@ export class Viewer {
 
   get groundY() { return this.bbox.isEmpty() ? 0 : this.bbox.min.y; }
 
+  /** Podlaží všech modelů: { name, y (výška podlahy v souřadnicích modelRoot), elev, model }, odspodu. */
+  get storeys() {
+    const out = [];
+    for (const [model, g] of this.groups) {
+      const dy = g.matrix.elements[13];
+      for (const st of g.userData.storeys) out.push({ ...st, y: st.y + dy, model });
+    }
+    return out.sort((a, b) => a.y - b.y);
+  }
+
+  /**
+   * Výchozí podlaha (start ve VR, mřížka, teleport mimo budovu): podlaží 1NP podle názvu, jinak
+   * podlaží s výškou nejblíž ±0,00; bez podlaží (nebo mimo model) spodek modelu.
+   */
+  get floorY() {
+    if (this.bbox.isEmpty()) return 0;
+    const all = this.storeys.filter((st) => st.y >= this.bbox.min.y - 1 && st.y <= this.bbox.max.y);
+    let base = null;
+    for (const model of this.groups.keys()) {
+      base = all.find((st) => st.model === model && FIRST_FLOOR.test(st.name));
+      if (base) break;
+    }
+    if (!base) {
+      const withElev = all.filter((st) => st.elev != null);
+      base = withElev.sort((a, b) => Math.abs(a.elev) - Math.abs(b.elev))[0] || null;
+    }
+    return base ? base.y : this.groundY;
+  }
+
   updateGround() {
     this.invalidate();
     const size = this.bbox.getSize(new THREE.Vector3());
     const c = this.bbox.getCenter(new THREE.Vector3());
     const extent = Math.max(size.x, size.z, 10) * 4;
     this.ground.scale.set(extent, 1, extent);
-    this.ground.position.set(c.x, this.groundY, c.z);
+    const floorY = this.floorY;
+    this.ground.position.set(c.x, floorY, c.z);
     this.ground.updateMatrixWorld();
     if (this.grid) { this.grid.geometry.dispose(); this.grid.removeFromParent(); }
     // buňka 1 m, u velkých modelů 5 nebo 10 m, ať mřížka nemá víc než ~150 čar
     const cell = [1, 5, 10, 50, 100].find((s) => extent / s <= 150) || 100;
     const div = Math.ceil(extent / cell);
     this.grid = new THREE.GridHelper(div * cell, div, t('color.border.default'), t('color.bg.control'));
-    this.grid.position.set(Math.round(c.x / cell) * cell, this.groundY - 0.005, Math.round(c.z / cell) * cell);
+    this.grid.position.set(Math.round(c.x / cell) * cell, floorY - 0.005, Math.round(c.z / cell) * cell);
     this.scene.add(this.grid);
   }
 

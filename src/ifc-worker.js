@@ -3,7 +3,7 @@
 // (např. profese stavby). Geometrie je v souřadnicích modelu; zarovnání k prvnímu modelu dělá
 // prohlížeč maticí (podle coord), aby šla geometrie uložit do mezipaměti nezávisle na pořadí.
 import * as WebIFC from 'web-ifc';
-import { BufferGeometry, BufferAttribute } from 'three';
+import { BufferGeometry, BufferAttribute, Matrix4 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
 import { findLeaves, NOT_SWINGING } from './doors.js';
@@ -198,6 +198,25 @@ function transform(verts, m, P, N, o) {
   }
 }
 
+/**
+ * Podlaží: název, výška podlahy v souřadnicích geometrie (y) a Elevation v metrech (elev, výška vůči ±0,00).
+ * G = převod z umístění IFC do souřadnic geometrie. Seřazeno odspodu.
+ */
+function readStoreys(modelID, G) {
+  const out = [];
+  const scale = Math.hypot(G.elements[0], G.elements[1], G.elements[2]) || 1;
+  for (const s of idsOfType(modelID, WebIFC.IFCBUILDINGSTOREY)) {
+    try {
+      const line = api.GetLine(modelID, s);
+      const W = new Matrix4().fromArray(api.GetWorldTransformMatrix(modelID, line.ObjectPlacement.value));
+      const y = new Matrix4().multiplyMatrices(G, W).elements[13];
+      const elev = val(line.Elevation);
+      out.push({ id: s, name: String(val(line.Name) || val(line.LongName) || `Podlaží ${s}`), y, elev: elev == null ? null : Number(elev) * scale });
+    } catch (e) { console.warn('Podlaží nejde přečíst', s, e); }
+  }
+  return out.sort((a, b) => a.y - b.y);
+}
+
 /** Typ otevírání dveří (OperationType z dveří, v IFC2X3 z jejich typu / stylu). */
 function doorOps(modelID, doorIds) {
   const ops = new Map();
@@ -262,6 +281,21 @@ function buildGeometry(modelID) {
     return [b.key, start, inds.length];
   };
 
+  // převod z umístění IFC (jednotky souboru, osa Z nahoru) do souřadnic geometrie: G = F · W⁻¹
+  // (F = matice dílu z web-ifc, W = umístění prvku); bere se nejčastější z prvních prvků
+  const samples = new Map();
+  const sampleFrame = (id, flat) => {
+    try {
+      const pl = api.GetLine(modelID, id).ObjectPlacement;
+      if (!pl) return;
+      const W = new Matrix4().fromArray(api.GetWorldTransformMatrix(modelID, pl.value));
+      const G = new Matrix4().fromArray(flat).multiply(W.invert());
+      const key = G.elements.map((x) => x.toFixed(4)).join(',');
+      const e = samples.get(key);
+      if (e) e.n++; else samples.set(key, { n: 1, G });
+    } catch { samples.set(`chyba${samples.size}`, { n: 0, G: null }); }
+  };
+
   // průběh: web-ifc počítá index zvlášť pro každý typ prvku, proto vlastní počítadlo proti všem IfcProduct
   const expected = Math.max(api.GetLineIDsWithType(modelID, WebIFC.IFCPRODUCT, true).size(), 1);
   let streamed = 0;
@@ -275,6 +309,7 @@ function buildGeometry(modelID) {
     if (skip.has(id)) return;
     elements++;
     const geoms = mesh.geometries;
+    if (samples.size < 400 && geoms.size()) sampleFrame(id, geoms.get(0).flatTransformation);
     if (doorIds.has(id)) {
       try { addDoor(id, geoms); return; } catch (e) { console.warn('Dveře nejde rozdělit na křídla', id, e); }
     }
@@ -319,6 +354,9 @@ function buildGeometry(modelID) {
 
   // posun, o který web-ifc model přesunul k počátku: podle něj prohlížeč zarovná modely mezi sebou
   const coord = Array.from(api.GetCoordinationMatrix(modelID));
+  let G = null, best = 0;
+  for (const e of samples.values()) if (e.G && e.n > best) { best = e.n; G = e.G; }
+  const storeys = G ? readStoreys(modelID, G) : [];
 
   const out = [];
   const transfer = [];
@@ -353,7 +391,7 @@ function buildGeometry(modelID) {
     progress('bvh', doneTris / totalTris);
     out.push(item);
   }
-  return { meta: { schema, elements, simplified, coord, doors }, buckets: out, transfer };
+  return { meta: { schema, elements, simplified, coord, doors, storeys }, buckets: out, transfer };
 }
 
 /**

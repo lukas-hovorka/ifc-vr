@@ -10,7 +10,9 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   přiblížit (klepnutí na název) a odebrat –
   na počítači v panelu vlevo, ve VR na záložce **Modely** panelu u levé ruky (tam i *Přidat soubor*,
   které ukončí VR a otevře výběr souborů)
-- **VR 1:1**: procházení modelem ve skutečné velikosti (teleport, chůze, let nahoru/dolů)
+- **VR 1:1**: procházení modelem ve skutečné velikosti (teleport, chůze, let nahoru/dolů); začíná se před
+  budovou na podlaze **1NP** (podlaží s názvem 1NP / 1.NP / přízemí, jinak s výškou nejblíž ±0,00), ve stejné
+  výšce je mřížka a podlaha pro teleport mimo budovu
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
 - výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství) na panelu u levé ruky
