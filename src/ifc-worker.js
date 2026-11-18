@@ -281,8 +281,8 @@ function buildGeometry(modelID) {
     return [b.key, start, inds.length];
   };
 
-  // převod z umístění IFC (jednotky souboru, osa Z nahoru) do souřadnic geometrie: G = F · W⁻¹
-  // (F = matice dílu z web-ifc, W = umístění prvku); bere se nejčastější z prvních prvků
+  // převod z umístění IFC (jednotky souboru, osa Z nahoru) do souřadnic geometrie: natočení a měřítko
+  // z G = F · W⁻¹ (F = matice dílu z web-ifc, W = umístění prvku), nejčastější z prvních prvků
   const samples = new Map();
   const sampleFrame = (id, flat) => {
     try {
@@ -290,7 +290,8 @@ function buildGeometry(modelID) {
       if (!pl) return;
       const W = new Matrix4().fromArray(api.GetWorldTransformMatrix(modelID, pl.value));
       const G = new Matrix4().fromArray(flat).multiply(W.invert());
-      const key = G.elements.map((x) => x.toFixed(4)).join(',');
+      // jen natočení a měřítko (posun dílu vůči umístění prvku se liší, posun modelu je coord níže)
+      const key = G.elements.slice(0, 12).map((x) => x.toFixed(6)).join(',');
       const e = samples.get(key);
       if (e) e.n++; else samples.set(key, { n: 1, G });
     } catch { samples.set(`chyba${samples.size}`, { n: 0, G: null }); }
@@ -356,6 +357,8 @@ function buildGeometry(modelID) {
   const coord = Array.from(api.GetCoordinationMatrix(modelID));
   let G = null, best = 0;
   for (const e of samples.values()) if (e.G && e.n > best) { best = e.n; G = e.G; }
+  // posun = posun modelu k počátku z web-ifc (u prvků s posunutou geometrií by F · W⁻¹ dal jiný)
+  if (G) { G = G.clone(); G.elements[12] = coord[12]; G.elements[13] = coord[13]; G.elements[14] = coord[14]; }
   const storeys = G ? readStoreys(modelID, G) : [];
 
   const out = [];
