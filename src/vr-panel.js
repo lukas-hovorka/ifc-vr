@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { t, px, font } from './theme.js';
 import { QUALITY } from './quality.js';
 import { drawUser } from './map.js';
+import { MOSES_RADII } from './moses.js';
 
 const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 
@@ -83,6 +84,7 @@ export class VRPanel {
       return true;
     }
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
+    if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -329,6 +331,14 @@ export class VRPanel {
       y += this.sectionLabel('Zobrazení', pad, y);
       QUALITY_KEYS.forEach(([key, label], i) => {
         this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
+      });
+      y += bh + pad;
+
+      // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)
+      y += this.sectionLabel('Mojžíšův mód', pad, y);
+      const quarter = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
+      MOSES_RADII.forEach((r, i) => {
+        this.button(`moses:${r}`, r ? `${r} m` : 'Vyp.', pad + i * (quarter + gap), y, quarter, { active: (st.moses || 0) === r });
       });
       y += bh + pad;
     }

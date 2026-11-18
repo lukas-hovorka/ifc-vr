@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshBVH, computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { t } from './theme.js';
 import { QUALITY } from './quality.js';
+import { Moses } from './moses.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -78,6 +79,9 @@ export class Viewer {
       side: THREE.DoubleSide,
     });
     this.selectedId = null;
+    /** Mojžíšův mód: výřez modelu kolem uživatele (shader + výběr a teleport ho respektují) */
+    this.moses = new Moses();
+    this.moses.patch(this.highlightMat);
 
     this.raycaster = new THREE.Raycaster();
     this.raycaster.firstHitOnly = true;
@@ -100,6 +104,8 @@ export class Viewer {
       if (!xr) this.controls.update(); // tlumení dobíhá přes událost change
       this.onBeforeRender?.(dt, frame);
       this.tickDoors(dt);
+      if (!xr && this.moses.target > 0) this.updateMosesDesktop();
+      if (this.moses.tick(dt)) this.dirty = true;
       if (!xr && !this.dirty) return;
       this.dirty = false;
       this.renderer.render(this.scene, this.camera);
@@ -231,6 +237,7 @@ export class Viewer {
       const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace) });
       mat.userData.alpha = a;
       this.applyMaterialQuality(mat);
+      this.moses.patch(mat);
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData.origColor = mat.color.clone();
       mesh.userData.ranges = b.ranges;
@@ -375,11 +382,37 @@ export class Viewer {
 
   /** Průsečík paprsku s modelem: { point, distance, face, id } nebo null. */
   intersect(raycaster) {
-    const hits = raycaster.intersectObjects(this.visibleMeshes, false);
-    if (!hits.length) return null;
-    hits.sort((a, b) => a.distance - b.distance);
-    const h = hits[0];
-    return { ...h, id: this.idFromHit(h) };
+    const h = this.raycast(raycaster, this.visibleMeshes)[0];
+    return h ? { ...h, id: this.idFromHit(h) } : null;
+  }
+
+  /**
+   * Průsečíky seřazené podle vzdálenosti, bez částí ve výřezu Mojžíšova módu (nejsou vidět, nejdou
+   * vybrat ani na ně teleportovat). Ve výřezu je potřeba všechny zásahy, ne jen první.
+   */
+  raycast(raycaster, objects) {
+    if (!this.moses.active) return raycaster.intersectObjects(objects, false).sort((a, b) => a.distance - b.distance);
+    const first = raycaster.firstHitOnly;
+    raycaster.firstHitOnly = false;
+    try {
+      return raycaster.intersectObjects(objects, false).filter((h) => !this.moses.hides(h.point)).sort((a, b) => a.distance - b.distance);
+    } finally { raycaster.firstHitOnly = first; }
+  }
+
+  /** Na počítači: výřez kolem středu otáčení, od podlahy podlaží, ve kterém střed leží. */
+  updateMosesDesktop() {
+    const c = this.controls.target;
+    let feet = this.groundY;
+    for (const st of this.storeys) if (st.y <= c.y + 0.1) feet = st.y;
+    this.modelRoot.updateMatrixWorld();
+    this.moses.setCenter(c.x, feet, c.z);
+  }
+
+  /** Mojžíšův mód: poloměr výřezu v m (0 = vypnout). */
+  setMoses(r) {
+    this.moses.setRadius(r);
+    if (r > 0 && !this.renderer.xr.isPresenting) this.updateMosesDesktop();
+    this.invalidate();
   }
 
   pickAtScreen(x, y) {

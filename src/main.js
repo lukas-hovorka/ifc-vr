@@ -4,6 +4,7 @@ import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
 import { PlanMap, drawUser } from './map.js';
+import { MOSES_RADII } from './moses.js';
 
 // ---------- worker ----------
 const worker = new Worker(new URL('./ifc-worker.js', import.meta.url), { type: 'module' });
@@ -837,6 +838,26 @@ for (const [key, q] of Object.entries(QUALITY)) {
   ui.quality.appendChild(b);
 }
 xr.panel.onQuality = (key) => setQuality(key);
+
+// ---------- Mojžíšův mód: model kolem uživatele ustoupí ----------
+const mosesLabel = (r) => (r ? `${r} m` : 'Vyp.');
+function setMoses(r) {
+  viewer.setMoses(r);
+  for (const b of $('moses').querySelectorAll('[data-r]')) b.setAttribute('aria-pressed', String(+b.dataset.r === r));
+  xr.panel.set({ moses: r });
+}
+for (const r of MOSES_RADII) {
+  const b = document.createElement('button');
+  b.className = 'ebc-filter';
+  b.type = 'button';
+  b.dataset.r = String(r);
+  b.textContent = mosesLabel(r);
+  b.title = r ? `Výřez o poloměru ${r} m` : 'Vypnout';
+  b.addEventListener('click', () => setMoses(r));
+  $('moses').appendChild(b);
+}
+xr.panel.onMoses = (r) => setMoses(r);
+setMoses(0);
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };

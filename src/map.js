@@ -87,6 +87,8 @@ export class PlanMap {
       sides: new Map(),
     };
     for (const o of saved.hidden) o.visible = false;
+    saved.moses = v.moses.uniforms.mosesRadius.value;
+    v.moses.uniforms.mosesRadius.value = 0;
     for (const m of v.meshes) if (!saved.sides.has(m.material)) { saved.sides.set(m.material, m.material.side); m.material.side = THREE.DoubleSide; }
     v.modelRoot.matrixAutoUpdate = false;
     v.modelRoot.matrix.identity();
@@ -107,6 +109,7 @@ export class PlanMap {
       r.clippingPlanes = saved.clip;
       r.xr.enabled = saved.xr;
       v.scene.background = saved.bg;
+      v.moses.uniforms.mosesRadius.value = saved.moses;
       for (const o of saved.hidden) o.visible = true;
       for (const [mat, side] of saved.sides) mat.side = side;
       v.modelRoot.matrix.copy(saved.root);
@@ -150,12 +153,15 @@ export class PlanMap {
     v.modelRoot.matrix.identity();
     v.modelRoot.updateMatrixWorld(true);
     let hit = null;
+    const mosesR = v.moses.uniforms.mosesRadius.value;
+    v.moses.uniforms.mosesRadius.value = 0;
     try {
       this.ray.set(new THREE.Vector3(x, level.y + CUT, z), new THREE.Vector3(0, -1, 0));
       this.ray.far = CUT + BELOW + 0.6;
       hit = this.v.intersect(this.ray);
     } finally {
       for (const [mat, side] of sides) mat.side = side;
+      v.moses.uniforms.mosesRadius.value = mosesR;
       v.modelRoot.matrix.copy(root);
       v.modelRoot.matrixAutoUpdate = auto;
       v.modelRoot.updateMatrixWorld(true);

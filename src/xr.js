@@ -309,9 +309,8 @@ export class XRControls {
       const len = seg.length();
       this.raycaster.set(p, seg.normalize());
       this.raycaster.far = len;
-      const hits = this.raycaster.intersectObjects(targets, false);
+      const hits = this.v.raycast(this.raycaster, targets);
       if (hits.length) {
-        hits.sort((a, b) => a.distance - b.distance);
         hit = hits[0];
         pos.setXYZ(n, hit.point.x, hit.point.y, hit.point.z);
         n++;
@@ -354,6 +353,13 @@ export class XRControls {
     const session = this.v.renderer.xr.getSession();
     if (!session) return;
     const v = this.v;
+    // Mojžíšův mód: výřez kolem hlavy od podlahy pod nohama (u makety ne – model je zmenšený na stole)
+    if (v.moses.target > 0 || v.moses.active) {
+      if (this.mode === 'full') {
+        const head = v.renderer.xr.getCamera().getWorldPosition(this.tmp.v);
+        v.moses.setCenter(head.x, v.rig.position.y, head.z);
+      } else v.moses.setCenter(1e9, 0, 1e9);
+    }
     // mapa na panelu: poloha uživatele se překresluje dvakrát za sekundu
     if (this.panel.state.tab === 'map' && this.panel.mesh.visible) {
       this.mapTimer = (this.mapTimer || 0) + dt;
