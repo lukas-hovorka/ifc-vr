@@ -3,6 +3,7 @@ import { QUALITY, loadQuality, saveQuality } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
+import { PlanMap, drawUser } from './map.js';
 
 // ---------- worker ----------
 const worker = new Worker(new URL('./ifc-worker.js', import.meta.url), { type: 'module' });
@@ -41,6 +42,7 @@ const ui = {
   progressSec: $('progress-sec'), progressName: $('progress-name'), progressCount: $('progress-count'), progressPhase: $('progress-phase'),
   btnVR: $('btn-vr'), btnAR: $('btn-ar'), info: $('info'), infoSummary: $('info-summary'),
   quality: $('quality'), qualityHint: $('quality-hint'),
+  btnMap: $('btn-map'), mapCard: $('map-card'), mapLevels: $('map-levels'), mapPlan: $('map-plan'), mapHint: $('map-hint'),
 };
 
 const viewer = new Viewer($('viewport'));
@@ -123,6 +125,8 @@ const xr = new XRControls(viewer, {
   },
 });
 viewer.onBeforeRender = (dt) => xr.update(dt);
+/** půdorysy podlaží pro mapu */
+const planMap = new PlanMap(viewer);
 
 /** Stavový řádek. Úspěšné načtení se neukazuje (model je vidět v seznamu), chyby a upozornění ano. */
 function setStatus(text, kind = '') {
@@ -205,6 +209,9 @@ onProgress = (d) => {
 };
 
 function updateLoaded() {
+  // půdorysy podle aktuálních modelů, barev a viditelnosti
+  planMap.invalidate();
+  if (!ui.mapCard.hidden) { if (loaded.length) drawMapCard(); else ui.mapCard.hidden = true; }
   ui.loaded.replaceChildren();
   for (const m of loaded) {
     // řádek jako v IFC vieweru: zobrazit, barva, název (klepnutím přiblížit) s podtitulkem, velikost, odebrat
@@ -649,6 +656,8 @@ function updateXRButtons() {
   const why = !window.isSecureContext ? 'VR vyžaduje zabezpečené připojení (https:// nebo localhost).'
     : !navigator.xr ? 'Prohlížeč nepodporuje WebXR. Otevřete stránku v prohlížeči Meta Quest.'
     : !hasModel ? 'Nejdřív načtěte model.' : '';
+  ui.btnMap.disabled = !hasModel || !planMap.levels().length;
+  ui.btnMap.title = !hasModel ? 'Nejdřív načtěte model.' : ui.btnMap.disabled ? 'Model nemá podlaží.' : 'Půdorys podlaží, klepnutím přesun na místo';
   ui.btnVR.disabled = loading || !hasModel || !support.vr;
   ui.btnAR.disabled = loading || !hasModel || !support.ar;
   ui.btnVR.title = why || (!support.vr ? 'Zařízení nepodporuje VR.' : 'Prohlížet model v brýlích ve skutečné velikosti');
@@ -679,6 +688,110 @@ ui.btnAR.addEventListener('click', () => enterXR('immersive-ar'));
 
 setStatus('Vyberte jeden nebo více souborů IFC.');
 
+// ---------- mapa: půdorys podlaží, přesun na místo ----------
+let mapLevel = 0;
+const NOT_HERE = 'Sem se přesunout nejde (mimo budovu, ve zdi nebo bez podlahy).';
+const MAP_HINT = 'Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí).';
+
+/** Poloha a směr pohledu uživatele v mapě (u, v v rozsahu 0–1), nebo null (maketa ve VR). */
+function mapUser() {
+  const presenting = viewer.renderer.xr.isPresenting;
+  if (presenting && xr.mode !== 'full') return null;
+  const cam = presenting ? viewer.renderer.xr.getCamera() : viewer.camera;
+  const p = cam.getWorldPosition(viewer.camera.position.clone());
+  const dir = cam.getWorldDirection(viewer.camera.position.clone());
+  viewer.modelRoot.updateMatrixWorld(true);
+  viewer.modelRoot.worldToLocal(p);
+  return { ...planMap.toMap(p.x, p.z), dx: dir.x, dy: dir.z };
+}
+
+/** Podlaží, na kterém uživatel je (u počítače z výšky očí, nad budovou výchozí 1NP). */
+function currentLevel() {
+  const presenting = viewer.renderer.xr.isPresenting;
+  const y = presenting ? viewer.rig.position.y : viewer.camera.position.y - 1.6;
+  const inside = y >= viewer.bbox.min.y - 1 && y <= viewer.bbox.max.y;
+  return planMap.levelAt(inside ? y : viewer.floorY);
+}
+
+function drawMapCard() {
+  const levels = planMap.levels();
+  if (!levels.length) { ui.mapCard.hidden = true; return; }
+  mapLevel = Math.min(mapLevel, levels.length - 1);
+  ui.mapLevels.replaceChildren(...levels.map((l, i) => {
+    const b = document.createElement('button');
+    b.className = 'ebc-filter';
+    b.type = 'button';
+    b.textContent = l.label;
+    b.title = l.name;
+    b.setAttribute('aria-pressed', String(i === mapLevel));
+    b.addEventListener('click', () => { mapLevel = i; setMapHint(''); drawMapCard(); });
+    return b;
+  }).reverse());
+  const plan = planMap.plan(levels[mapLevel]).canvas;
+  const c = ui.mapPlan;
+  c.width = plan.width; c.height = plan.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(plan, 0, 0);
+  const me = mapUser();
+  if (me) drawUser(ctx, me.u * c.width, me.v * c.height, me.dx, me.dy, Math.max(4, c.width / 110));
+}
+
+function setMapHint(err) {
+  ui.mapHint.textContent = err || MAP_HINT;
+  ui.mapHint.classList.toggle('is-error', !!err);
+}
+
+function openMap(on) {
+  ui.mapCard.hidden = !on;
+  if (!on) return;
+  mapLevel = currentLevel();
+  setMapHint('');
+  drawMapCard();
+}
+ui.btnMap.addEventListener('click', () => openMap(ui.mapCard.hidden));
+$('map-close').addEventListener('click', () => openMap(false));
+
+// klepnutí do půdorysu: na počítači pohled z výšky očí, směr pohledu zůstane
+ui.mapPlan.addEventListener('click', (e) => {
+  const r = ui.mapPlan.getBoundingClientRect();
+  const level = planMap.levels()[mapLevel];
+  const { x, z } = planMap.toModel((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  const pt = level && planMap.floorAt(level, x, z);
+  if (!pt) { setMapHint(NOT_HERE); return; }
+  setMapHint('');
+  const cam = viewer.camera;
+  const dir = cam.getWorldDirection(cam.position.clone());
+  dir.y = 0;
+  if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+  dir.normalize();
+  cam.position.set(pt.x, pt.y + 1.6, pt.z);
+  cam.near = 0.05;
+  cam.far = Math.max(cam.far, viewer.bbox.getSize(cam.position.clone()).length() * 3 + 100);
+  cam.updateProjectionMatrix();
+  viewer.controls.target.copy(cam.position).add(dir);
+  viewer.controls.update();
+  viewer.invalidate();
+  drawMapCard();
+});
+// značka uživatele sleduje pohyb kamery
+let mapRedraw = 0;
+viewer.controls.addEventListener('change', () => {
+  if (ui.mapCard.hidden || mapRedraw) return;
+  mapRedraw = requestAnimationFrame(() => { mapRedraw = 0; if (!ui.mapCard.hidden) drawMapCard(); });
+});
+
+// mapa na panelu ve VR
+xr.panel.mapSource = { levels: () => planMap.levels(), plan: (l) => planMap.plan(l), user: mapUser };
+xr.panel.onTab = (tab) => { if (tab === 'map') xr.panel.state.mapLevel = currentLevel(); };
+xr.panel.onMap = (i, u, v) => {
+  const level = planMap.levels()[i];
+  const { x, z } = planMap.toModel(u, v);
+  const pt = level && planMap.floorAt(level, x, z);
+  if (!pt) { xr.panel.set({ mapMsg: NOT_HERE }); return; }
+  xr.goTo(pt);
+  xr.panel.set({ mapMsg: '' });
+};
+
 // ---------- úroveň zobrazení: Kvalita / Vyvážené / Výkon (pamatuje se v prohlížeči) ----------
 function setQuality(key) {
   const q = QUALITY[key];
@@ -701,7 +814,7 @@ for (const [key, q] of Object.entries(QUALITY)) {
 xr.panel.onQuality = (key) => setQuality(key);
 setQuality(loadQuality());
 
-if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select };
+if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };
 
 // offline režim a instalace jako aplikace (jen v buildu, v dev serveru by mezipaměť překážela)
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

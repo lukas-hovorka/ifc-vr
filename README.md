@@ -16,6 +16,9 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
 - výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství) na panelu u levé ruky
+- **mapa**: půdorys podlaží (pohled shora, řez 1,2 m nad podlahou) s polohou a směrem pohledu uživatele;
+  klepnutím do půdorysu se přesunete na místo – na počítači tlačítko *Mapa* (pohled z výšky očí), ve VR záložka
+  **Mapa** na panelu u levé ruky. Přesun jde jen na podlahu podlaží nebo schod (ne do zdi, na nábytek ani mimo budovu)
 - **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
@@ -86,6 +89,7 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | A / B | nahoru / dolů |
 | Pravá spoušť | vybrat prvek, stisknout tlačítko na panelu |
 | Pravá spoušť znovu na vybrané dveře | otevřít / zavřít |
+| Pravá spoušť do půdorysu (záložka Mapa) | přesun na místo zvoleného podlaží |
 | Úchop (maketa) | jednou rukou posunout, oběma otočit a zvětšit |
 | X | skrýt / zobrazit panel |
 | Y | přepnout Skutečné 1:1 / Maketa |

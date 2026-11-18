@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { t, px, font } from './theme.js';
 import { QUALITY } from './quality.js';
+import { drawUser } from './map.js';
 
 const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 
@@ -44,6 +45,10 @@ export class VRPanel {
     this.onModel = null;
     /** Volba úrovně zobrazení (klíč z QUALITY) */
     this.onQuality = null;
+    /** Mapa: { levels(), plan(level) → { canvas }, user() → { u, v, dx, dy } | null } a přesun (index podlaží, u, v) */
+    this.mapSource = null;
+    this.onMap = null;
+    this.pointer = { x: 0, y: 0 };
     this.draw();
   }
 
@@ -56,6 +61,7 @@ export class VRPanel {
   /** Souřadnice UV průsečíku → oblast tlačítka. */
   pointAt(uv) {
     const x = uv.x * W, y = (1 - uv.y) * H;
+    this.pointer.x = x; this.pointer.y = y;
     const r = this.regions.find((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h && !r.disabled);
     const key = r ? r.key : null;
     if (key !== this.hover) { this.hover = key; this.draw(); }
@@ -70,7 +76,12 @@ export class VRPanel {
     const pg = this.state.tab === 'models' ? 'mpage' : 'page';
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
-    if (r.key === 'tab-info' || r.key === 'tab-models') { this.state.tab = r.key.slice(4); this.draw(); return true; }
+    if (r.key === 'tab-info' || r.key === 'tab-models' || r.key === 'tab-map') { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
+    if (r.key.startsWith('lvl:')) { this.state.mapLevel = +r.key.slice(4); this.state.mapMsg = ''; this.draw(); return true; }
+    if (r.key === 'map') {
+      this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
+      return true;
+    }
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
@@ -129,6 +140,49 @@ export class VRPanel {
     let s = text;
     while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1);
     return s + '…';
+  }
+
+  /** Mapa: tlačítka podlaží, půdorys se značkou uživatele; klepnutím do půdorysu přesun. */
+  drawMap(y, bottom, { pad, gap, inner, bh }) {
+    const c = this.ctx;
+    const st = this.state;
+    const src = this.mapSource;
+    const levels = src?.levels() || [];
+    if (!levels.length) {
+      c.font = font('typography.body', S);
+      c.fillStyle = t('color.text.secondary');
+      c.fillText('Model nemá podlaží, mapa není k dispozici.', pad, y + 4 * S, inner);
+      return;
+    }
+    st.mapLevel = Math.min(Math.max(st.mapLevel ?? 0, 0), levels.length - 1);
+    // podlaží odshora, nejvýš 4 v řádku
+    const perRow = Math.min(4, levels.length);
+    const bw = (inner - (perRow - 1) * gap) / perRow;
+    const order = levels.map((l, i) => i).reverse();
+    order.forEach((i, k) => {
+      const col = k % perRow, row = Math.floor(k / perRow);
+      c.font = font('typography.button', S);
+      this.button(`lvl:${i}`, this.ellipsize(levels[i].label, bw - 16 * S), pad + col * (bw + gap), y + row * (bh + gap), bw, { active: i === st.mapLevel });
+    });
+    y += Math.ceil(levels.length / perRow) * (bh + gap) + gap;
+    // zpráva dole
+    const msgH = 22 * S;
+    const areaH = bottom - y - msgH;
+    const plan = src.plan(levels[st.mapLevel]);
+    const pw = plan.canvas.width, ph = plan.canvas.height;
+    const k = Math.min(inner / pw, areaH / ph);
+    const w = pw * k, h = ph * k, x = pad + (inner - w) / 2;
+    c.drawImage(plan.canvas, x, y, w, h);
+    c.strokeStyle = t('color.border.default');
+    c.lineWidth = 1.5 * S;
+    c.strokeRect(x, y, w, h);
+    this.regions.push({ key: 'map', x, y, w, h, disabled: false });
+    const me = src.user();
+    if (me && me.u >= 0 && me.u <= 1 && me.v >= 0 && me.v <= 1) drawUser(c, x + me.u * w, y + me.v * h, me.dx, me.dy, 7 * S);
+    c.font = font('typography.small', S);
+    c.textBaseline = 'top';
+    c.fillStyle = st.mapMsg ? t('color.text.error') : t('color.text.secondary');
+    c.fillText(st.mapMsg || 'Namiřte do půdorysu a stiskněte spoušť: přesun na místo.', pad, y + h + 6 * S, inner);
   }
 
   /** Seznam načtených modelů: zapnout/vypnout, barva, odebrat; dole přidání dalšího souboru. */
@@ -253,31 +307,35 @@ export class VRPanel {
 
     let y = headH + pad;
 
-    // měřítko
-    y += this.sectionLabel('Měřítko', pad, y);
-    const half = (inner - gap) / 2;
-    const bh = this.button('mode-full', 'Skutečné 1:1', pad, y, half, { active: st.mode === 'full' });
-    this.button('mode-mini', 'Maketa', pad + half + gap, y, half, { active: st.mode === 'mini' });
-    y += bh + pad;
-
-    // akce
-    y += this.sectionLabel('Pohled', pad, y);
+    // v záložce Mapa jen záložky a mapa (víc místa pro půdorys)
     const third = (inner - 2 * gap) / 3;
-    this.button('reset', 'Na začátek', pad, y, third);
-    this.button('grid', 'Mřížka', pad + third + gap, y, third, { active: st.grid !== false });
-    this.button('exit', 'Ukončit VR', pad + 2 * (third + gap), y, third);
-    y += bh + pad;
+    const half = (inner - gap) / 2;
+    const bh = (px('size.button.padding-y') * 2 + 18) * S;
+    if (st.tab !== 'map') {
+      // měřítko
+      y += this.sectionLabel('Měřítko', pad, y);
+      this.button('mode-full', 'Skutečné 1:1', pad, y, half, { active: st.mode === 'full' });
+      this.button('mode-mini', 'Maketa', pad + half + gap, y, half, { active: st.mode === 'mini' });
+      y += bh + pad;
 
-    // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
-    y += this.sectionLabel('Zobrazení', pad, y);
-    QUALITY_KEYS.forEach(([key, label], i) => {
-      this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
-    });
-    y += bh + pad;
+      // akce
+      y += this.sectionLabel('Pohled', pad, y);
+      this.button('reset', 'Na začátek', pad, y, third);
+      this.button('grid', 'Mřížka', pad + third + gap, y, third, { active: st.grid !== false });
+      this.button('exit', 'Ukončit VR', pad + 2 * (third + gap), y, third);
+      y += bh + pad;
 
-    // záložky: vybraný prvek / modely
-    this.button('tab-info', 'Vybraný prvek', pad, y, half, { active: st.tab === 'info' });
-    this.button('tab-models', `Modely (${st.models.length})`, pad + half + gap, y, half, { active: st.tab === 'models' });
+      // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
+      y += this.sectionLabel('Zobrazení', pad, y);
+      QUALITY_KEYS.forEach(([key, label], i) => {
+        this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
+      });
+      y += bh + pad;
+    }
+    // záložky: vybraný prvek / modely / mapa
+    this.button('tab-info', 'Vybraný prvek', pad, y, third, { active: st.tab === 'info' });
+    this.button('tab-models', `Modely (${st.models.length})`, pad + third + gap, y, third, { active: st.tab === 'models' });
+    this.button('tab-map', 'Mapa', pad + 2 * (third + gap), y, third, { active: st.tab === 'map' });
     y += bh + gap * 1.5;
     const footerH = HELP.length * 17 * S + pad * 1.4;
     const infoBottom = H - footerH - pad;
@@ -285,6 +343,8 @@ export class VRPanel {
     const lineH = 20 * S;
     if (st.tab === 'models') {
       this.drawModels(y, infoBottom, { pad, gap, inner, bh });
+    } else if (st.tab === 'map') {
+      this.drawMap(y, infoBottom, { pad, gap, inner, bh });
     } else if (!st.info) {
       c.font = font('typography.body', S);
       c.fillStyle = t('color.text.secondary');

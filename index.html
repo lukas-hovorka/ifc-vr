@@ -49,6 +49,7 @@
       <p class="ebc-small side__status" id="status" aria-live="polite"></p>
 
       <div class="side__actions">
+        <button class="ebc-btn" id="btn-map" disabled>Mapa</button>
         <button class="ebc-btn" id="btn-ar" disabled>Vstoupit do AR</button>
         <button class="ebc-btn ebc-btn--primary" id="btn-vr" disabled>Vstoupit do VR</button>
       </div>
@@ -77,6 +78,19 @@
       <p class="ebc-small side__contact">Autor: Lukáš Hovorka · <a class="ebc-link" href="mailto:lukas.hovorka@energy-benefit.cz">lukas.hovorka@energy-benefit.cz</a></p>
     </div>
   </aside>
+
+  <!-- mapa: půdorys podlaží, klepnutím přesun na místo -->
+  <section class="ebc-card map-card" id="map-card" aria-label="Mapa" hidden>
+    <header class="ebc-card__header map-card__head">
+      <span class="map-card__title">Mapa</span>
+      <button class="ebc-icon-btn" id="map-close" type="button" title="Zavřít mapu" aria-label="Zavřít mapu"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-window-close"/></svg></button>
+    </header>
+    <div class="ebc-card__body">
+      <div class="map-card__levels" id="map-levels" role="group" aria-label="Podlaží"></div>
+      <canvas class="map-card__plan" id="map-plan"></canvas>
+      <p class="ebc-small side__contact" id="map-hint">Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí).</p>
+    </div>
+  </section>
 
   <!-- nabídka barvy modelu (stejná jako v IFC vieweru) -->
   <div class="ebc-menu color-menu" id="color-menu" role="menu" aria-label="Barva modelu" hidden>

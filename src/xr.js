@@ -273,6 +273,13 @@ export class XRControls {
     rig.rotateOnWorldAxis(UP, angle);
   }
 
+  /** Přesun z mapy: bod podlahy v souřadnicích modelu (maketa se přepne na 1:1). */
+  goTo(point) {
+    if (this.mode !== 'full') this.setMode('full');
+    this.v.modelRoot.updateMatrixWorld(true);
+    this.teleportTo(this.v.modelRoot.localToWorld(point.clone()));
+  }
+
   teleportTo(point) {
     const rig = this.v.rig;
     const head = this.v.camera.getWorldPosition(new THREE.Vector3());
@@ -346,6 +353,11 @@ export class XRControls {
     const session = this.v.renderer.xr.getSession();
     if (!session) return;
     const v = this.v;
+    // mapa na panelu: poloha uživatele se překresluje dvakrát za sekundu
+    if (this.panel.state.tab === 'map' && this.panel.mesh.visible) {
+      this.mapTimer = (this.mapTimer || 0) + dt;
+      if (this.mapTimer > 0.5) { this.mapTimer = 0; this.panel.draw(); }
+    }
 
     if (this.needsInitialPose && --this.needsInitialPose === 0) {
       this.panel.set({ mode: this.mode });
