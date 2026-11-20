@@ -120,8 +120,8 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 | Rozlišení na počítači (násobek displeje, strop) | 2× | 1,5× | 1× |
 | Rozlišení v brýlích | plné rozlišení displeje | 100 % | 80 % |
 | Ostrost okrajů zorného pole v brýlích (foveace) | plná | střední | snížená |
-| Frekvence brýlí | 90 Hz | 72 Hz | 72 Hz |
-| Rubové strany ploch (pohled zevnitř zdi, plochy s otočenou normálou) | kreslí se | ne | ne |
+| Frekvence brýlí (když brýle nestíhají, samy přejdou na 72 Hz) | 90 Hz | 90 Hz | 72 Hz |
+| Rubové strany ploch (pohled zevnitř zdi, plochy s otočenou normálou) | kreslí se | kreslí se | ne |
 | Okna a sklo | průhledná | průhledná | neprůhledná |
 | Zastínění koutů | ano | ano | ano |
 

@@ -723,7 +723,7 @@ const MAP_HINT = 'Klepnutím do půdorysu se přesunete na místo (pohled z vý�
 function mapUser() {
   const presenting = viewer.renderer.xr.isPresenting;
   if (presenting && xr.mode !== 'full') return null;
-  const cam = presenting ? viewer.renderer.xr.getCamera() : viewer.camera;
+  const cam = viewer.camera; // ve VR ji three.js každý snímek nastaví podle hlavy (poloha ve světě i s rigem)
   const p = cam.getWorldPosition(viewer.camera.position.clone());
   const dir = cam.getWorldDirection(viewer.camera.position.clone());
   viewer.modelRoot.updateMatrixWorld(true);

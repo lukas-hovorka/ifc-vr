@@ -148,7 +148,8 @@ export class Viewer {
     this.renderer.setAnimationLoop((time, frame) => {
       const dt = Math.min(clock.getDelta(), 0.1);
       const xr = this.renderer.xr.isPresenting;
-      if (xr !== this.wasPresenting) { this.wasPresenting = xr; this.dirty = true; }
+      if (xr !== this.wasPresenting) { this.wasPresenting = xr; this.dirty = true; this.fpsWatch = { t: 0, n: 0, slow: 0 }; }
+      if (xr) this.watchFrameRate(dt);
       if (!xr) this.controls.update(); // tlumení dobíhá přes událost change
       this.onBeforeRender?.(dt, frame);
       this.tickDoors(dt);
@@ -198,6 +199,26 @@ export class Viewer {
     if (f === 'native') f = globalThis.XRWebGLLayer?.getNativeFramebufferScaleFactor?.(session) || 1.2;
     this.renderer.xr.setFramebufferScaleFactor(Math.min(Math.max(f, 0.5), 2));
     this.renderer.xr.setFoveation(this.quality.foveation);
+  }
+
+  /**
+   * Brýle nestíhají zvolenou frekvenci (dvakrát po sobě 2 s pod 85 %): přepnout na nejbližší nižší
+   * podporovanou (ne pod 72 Hz). Trhaný obraz na 90 Hz vypadá hůř než plynulý na 72 Hz.
+   */
+  watchFrameRate(dt) {
+    const w = this.fpsWatch || (this.fpsWatch = { t: 0, n: 0, slow: 0 });
+    w.t += dt; w.n++;
+    if (w.t < 2) return;
+    const fps = w.n / w.t;
+    w.t = 0; w.n = 0;
+    const s = this.renderer.xr.getSession?.();
+    const rate = s?.frameRate, rates = s?.supportedFrameRates;
+    if (!rate || !rates?.length || !s.updateTargetFrameRate) return;
+    w.slow = fps < rate * 0.85 ? w.slow + 1 : 0;
+    if (w.slow < 2) return;
+    w.slow = 0;
+    const lower = [...rates].filter((r) => r < rate && r >= 72).sort((a, b) => b - a)[0];
+    if (lower) s.updateTargetFrameRate(lower).catch((e) => console.warn('Frekvenci brýlí nejde snížit', e));
   }
 
   /** Obnovovací frekvence brýlí podle úrovně (nejbližší podporovaná nižší nebo stejná). */
@@ -557,7 +578,7 @@ export class Viewer {
     if (!d.built) this.buildLeaves(d, group);
     d.open = !d.open;
     if (d.open) {
-      const cam = this.renderer.xr.isPresenting ? this.renderer.xr.getCamera() : this.camera;
+      const cam = this.camera; // ve VR poloha hlavy ve světě (i s posunem rigu)
       group.updateWorldMatrix(true, false);
       const eye = group.worldToLocal(cam.getWorldPosition(new THREE.Vector3()));
       for (const l of d.leaves) {

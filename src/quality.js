@@ -5,7 +5,7 @@
 export const QUALITY = {
   quality: {
     label: 'Kvalita',
-    hint: 'Nejvyšší rozlišení, ostré i okraje zorného pole, viditelné i rubové strany ploch.',
+    hint: 'Nejvyšší rozlišení a ostré i okraje zorného pole. Na Questu 3 doporučeno.',
     pixelRatio: 2,       // na počítači: násobek rozlišení displeje (strop)
     xrScale: 'native',   // v brýlích: plné rozlišení displeje Questu
     foveation: 0,        // 0 = okraje zorného pole v plném rozlišení
@@ -19,8 +19,8 @@ export const QUALITY = {
     pixelRatio: 1.5,
     xrScale: 1,
     foveation: 0.5,
-    fps: 72,
-    doubleSide: false,
+    fps: 90,             // brýle, které nestíhají, přejdou samy na 72 Hz
+    doubleSide: true,
     glass: true,
   },
   performance: {
