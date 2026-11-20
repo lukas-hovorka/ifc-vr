@@ -18,8 +18,8 @@ export const QUALITY = {
     hint: 'Výchozí: dobrý obraz při plynulém pohybu i u velkých modelů.',
     pixelRatio: 1.5,
     xrScale: 1,
-    foveation: 0.5,
-    fps: 90,             // brýle, které nestíhají, přejdou samy na 72 Hz
+    foveation: 1,        // jako před úpravami výkonu (výchozí three.js): okraje, které čočky stejně rozmazávají
+    fps: 72,             // výchozí frekvence prohlížeče na Questu 3 a 3S
     doubleSide: true,
     glass: true,
   },
