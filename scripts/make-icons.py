@@ -39,16 +39,15 @@ RADIUS = 1 / 6  # zaoblení podkladu
 
 
 def png(size: int, maskable: bool) -> Image.Image:
-    """maskable: podklad přes celou plochu a kresba zmenšená do bezpečné zóny (systém ikonu ořízne)."""
+    """maskable: kresba zmenšená do bezpečné zóny (systém ikonu ořízne do kruhu nebo jiného tvaru)."""
     k = 4  # kreslí se ve 4× a zmenšuje (vyhlazení hran)
     S = size * k
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    if maskable:
-        d.rectangle([0, 0, S, S], fill=BG)
-    else:
-        d.rounded_rectangle([0, 0, S - 1, S - 1], S * RADIUS, fill=BG, outline=BORDER, width=max(1, S // 96))
-    scale = 0.8 if maskable else 1.0
+    # podklad přes celou plochu bez průhledných rohů: Quest dlaždici aplikace pod průhlednými místy
+    # vyplní bílou (rohy zaoblí systém sám)
+    d.rectangle([0, 0, S, S], fill=BG)
+    scale = 0.8 if maskable else 0.9
     off = (1 - scale) / 2
 
     def X(v):
