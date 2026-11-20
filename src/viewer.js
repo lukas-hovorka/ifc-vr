@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshBVH, computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import { t } from './theme.js';
 import { QUALITY } from './quality.js';
-import { Moses } from './moses.js';
+import { Moses, setDefine } from './moses.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -36,13 +36,17 @@ function shadeAO(uniforms) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoPos = transformed + normalize(objectNormal) * aoOffset;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
+#ifdef AO_VOLUME
 uniform highp sampler3D aoTex;
+#endif
 uniform vec3 aoOrigin;
 uniform vec3 aoSize;
 varying vec3 vAoPos;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+#ifdef AO_VOLUME
 float aoOcc = texture(aoTex, (vAoPos - aoOrigin) / aoSize).r;
-diffuseColor.rgb *= clamp(1.0 - ${AO_STRENGTH.toFixed(2)} * max(aoOcc - ${AO_BASE.toFixed(2)}, 0.0), ${AO_MIN.toFixed(2)}, 1.0);`);
+diffuseColor.rgb *= clamp(1.0 - ${AO_STRENGTH.toFixed(2)} * max(aoOcc - ${AO_BASE.toFixed(2)}, 0.0), ${AO_MIN.toFixed(2)}, 1.0);
+#endif`);
   };
 }
 
@@ -190,6 +194,9 @@ export class Viewer {
     mat.opacity = transparent ? Math.max(a, 0.15) : 1;
     mat.depthWrite = !transparent;
     mat.side = transparent || this.quality.doubleSide ? THREE.DoubleSide : THREE.FrontSide;
+    // zastínění koutů (ve Výkonu ne); posun hloubky jen s obrysovými hranami (jinak zbytečná práce)
+    if (mat.userData.ao) setDefine(mat, 'AO_VOLUME', this.quality.ao !== false);
+    mat.polygonOffset = this.edgesOn;
     mat.needsUpdate = true;
   }
 
@@ -247,6 +254,7 @@ export class Viewer {
     this.invalidate();
     m.geometry.disposeBoundsTree();
     m.geometry.dispose();
+    this.moses.forget(m.material);
     m.material.dispose();
     m.removeFromParent();
   }
@@ -309,10 +317,10 @@ export class Viewer {
       const transparent = a < 0.99;
       const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace) });
       mat.userData.alpha = a;
-      // plochy kousek dál od kamery, aby na nich obrysové hrany ležely a neprobleskovaly
-      mat.polygonOffset = true;
+      // s obrysovými hranami plochy kousek dál od kamery, aby na nich hrany ležely a neprobleskovaly
       mat.polygonOffsetFactor = 1;
       mat.polygonOffsetUnits = 1;
+      mat.userData.ao = true;
       this.applyMaterialQuality(mat);
       this.moses.patch(mat, shade);
       const mesh = new THREE.Mesh(g, mat);
@@ -356,6 +364,7 @@ export class Viewer {
   /** Obrysové hrany zapnout / vypnout (u skrytých modelů zůstanou skryté). */
   setEdges(on) {
     this.edgesOn = on;
+    for (const m of this.meshes) m.material.polygonOffset = on;
     for (const [modelID, lines] of this.edgeLines) {
       lines.visible = on && this.meshes.some((m) => m.userData.modelID === modelID && m.visible);
     }

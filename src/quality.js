@@ -12,6 +12,7 @@ export const QUALITY = {
     fps: 90,
     doubleSide: true,    // kreslit i rubové strany (pohled zevnitř zdi, plochy s otočenou normálou)
     glass: true,         // průhledná okna a sklo
+    ao: true,            // zastínění koutů
   },
   balanced: {
     label: 'Vyvážené',
@@ -22,16 +23,18 @@ export const QUALITY = {
     fps: 72,             // výchozí frekvence prohlížeče na Questu 3 a 3S
     doubleSide: true,
     glass: true,
+    ao: true,
   },
   performance: {
     label: 'Výkon',
-    hint: 'Pro velké modely: nižší rozlišení, rozmazanější okraje v brýlích, okna neprůhledná.',
+    hint: 'Pro velké modely: nižší rozlišení, rozmazanější okraje v brýlích, okna neprůhledná, bez zastínění koutů.',
     pixelRatio: 1,
     xrScale: 0.8,
     foveation: 1,
     fps: 72,
     doubleSide: false,
     glass: false,
+    ao: false,
   },
 };
 

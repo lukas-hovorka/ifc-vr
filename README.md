@@ -123,7 +123,7 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 | Frekvence brýlí (Kvalita: když brýle nestíhají, samy přejdou na 72 Hz) | 90 Hz | 72 Hz | 72 Hz |
 | Rubové strany ploch (pohled zevnitř zdi, plochy s otočenou normálou) | kreslí se | kreslí se | ne |
 | Okna a sklo | průhledná | průhledná | neprůhledná |
-| Zastínění koutů | ano | ano | ano |
+| Zastínění koutů | ano | ano | ne |
 
 Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. Úspory, které nejsou vidět, platí
 ve všech úrovních:

@@ -22,6 +22,9 @@ export class Moses {
       mosesRim: { value: new THREE.Color(t('color.accent.default')) },
     };
     this.target = 0;
+    /** materiály s výřezem; `discard` v shaderu je jen při zapnutém módu (MOSES_CUT) */
+    this.mats = new Set();
+    this.cut = false;
   }
 
   get active() { return this.uniforms.mosesRadius.value > 0.001; }
@@ -35,11 +38,26 @@ export class Moses {
   /** Rozevírání; vrátí true, když se poloměr změnil (je potřeba překreslit). */
   tick(dt) {
     const u = this.uniforms.mosesRadius;
+    this.setCut(this.target > 0 || this.active);
     if (u.value === this.target) return false;
     const step = (Math.max(this.target, u.value, 1) / GROW_TIME) * dt;
     u.value = Math.abs(this.target - u.value) <= step ? this.target : u.value + Math.sign(this.target - u.value) * step;
     return true;
   }
+
+  /**
+   * Výřez do shaderů přidat / odebrat. Samotný příkaz discard v shaderu (i když se nikdy neprovede)
+   * vypne na grafice brýlí včasné zahazování zakrytých bodů: bez módu by se počítala barva i všech zdí
+   * za sebou. Proto je jen v shaderech, když je mód zapnutý (přepnutí shadery jednou přeloží).
+   */
+  setCut(on) {
+    if (on === this.cut) return;
+    this.cut = on;
+    for (const m of this.mats) setDefine(m, 'MOSES_CUT', on);
+  }
+
+  /** Materiál se ruší: přestat ho sledovat. */
+  forget(mat) { this.mats.delete(mat); }
 
   /** Je bod (svět) ve výřezu, tedy nekreslí se a nejde vybrat? */
   hides(p) {
@@ -60,14 +78,27 @@ export class Moses {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vMosesPos;\nuniform float mosesRadius;\nuniform vec3 mosesCenter;\nuniform vec3 mosesRim;')
         .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+          #ifdef MOSES_CUT
           float mosesD = length(vMosesPos.xz - mosesCenter.xz);
           bool mosesAbove = vMosesPos.y > mosesCenter.y;
-          if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius) discard;`)
+          if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius) discard;
+          #endif`)
         .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-          if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius + ${RIM.toFixed(3)}) gl_FragColor.rgb = mosesRim;`);
+          #ifdef MOSES_CUT
+          if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius + ${RIM.toFixed(3)}) gl_FragColor.rgb = mosesRim;
+          #endif`);
       extra?.(shader);
     };
     mat.customProgramCacheKey = () => (extra ? 'moses+' : 'moses');
-    mat.needsUpdate = true;
+    this.mats.add(mat);
+    setDefine(mat, 'MOSES_CUT', this.cut);
   }
+}
+
+/** Zapne / vypne define materiálu (shader se při další kresbě přeloží jen při změně). */
+export function setDefine(mat, name, on) {
+  mat.defines = mat.defines || {};
+  if (on === (name in mat.defines)) return;
+  if (on) mat.defines[name] = ''; else delete mat.defines[name];
+  mat.needsUpdate = true;
 }
