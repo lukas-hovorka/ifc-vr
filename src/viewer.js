@@ -20,6 +20,49 @@ const DOOR_TIME = 0.8;
  */
 export const GRID_BELOW = 0.05;
 const doorKey = (ref) => `${ref.model}:${ref.id}`;
+
+/**
+ * Zastínění koutů: hodnota z prostorové mřížky modelu (spočítal worker) v bodě kousek před plochou.
+ * Zakrytí volné plochy (jedna rovina vedle bodu) je AO_BASE, ztmavuje se jen nad ním (kouty, spoje).
+ */
+const AO_BASE = 0.32;
+const AO_STRENGTH = 1.8;
+const AO_MIN = 0.4;
+function shadeAO(uniforms) {
+  return (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float aoOffset;\nvarying vec3 vAoPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoPos = transformed + normalize(objectNormal) * aoOffset;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform highp sampler3D aoTex;
+uniform vec3 aoOrigin;
+uniform vec3 aoSize;
+varying vec3 vAoPos;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+float aoOcc = texture(aoTex, (vAoPos - aoOrigin) / aoSize).r;
+diffuseColor.rgb *= clamp(1.0 - ${AO_STRENGTH.toFixed(2)} * max(aoOcc - ${AO_BASE.toFixed(2)}, 0.0), ${AO_MIN.toFixed(2)}, 1.0);`);
+  };
+}
+
+/** Prostorová textura zastínění z výsledku workeru ({ data, dims, origin, cell }); bez něj prázdná. */
+function aoUniforms(ao) {
+  const [nx, ny, nz] = ao ? ao.dims : [1, 1, 1];
+  const tex = new THREE.Data3DTexture(ao ? ao.data : new Uint8Array(1), nx, ny, nz);
+  tex.format = THREE.RedFormat;
+  tex.type = THREE.UnsignedByteType;
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  const cell = ao ? ao.cell : 1;
+  return {
+    aoTex: { value: tex },
+    aoOrigin: { value: new THREE.Vector3(...(ao ? ao.origin : [0, 0, 0])) },
+    aoSize: { value: new THREE.Vector3(nx * cell, ny * cell, nz * cell) },
+    aoOffset: { value: cell * 0.75 },
+  };
+}
 /** Název podlaží 1NP (přízemí): „1NP“, „1.NP“, „1 NP_SO-101“…, ne „11NP“ ani „-1.PP“. */
 const FIRST_FLOOR = /(^|[^0-9])1\s*\.?\s*N\.?\s*P|přízemí|prizemi|ground\s*floor/i;
 
@@ -61,6 +104,10 @@ export class Viewer {
     this.bbox = new THREE.Box3();
     /** "model:id" → dveře s křídly z workeru ({ leaves, open }); křídla se z modelu vyjmou při prvním otevření */
     this.doors = new Map();
+    /** obrysové hrany (zapínají se volbou); modelID → čáry */
+    this.edgesOn = false;
+    this.edgeLines = new Map();
+    this.edgeMat = new THREE.LineBasicMaterial({ color: t('color.bg.deep') });
     /** dveře, jejichž křídla se právě otáčejí */
     this.swinging = new Set();
 
@@ -82,6 +129,7 @@ export class Viewer {
     /** Mojžíšův mód: výřez modelu kolem uživatele (shader + výběr a teleport ho respektují) */
     this.moses = new Moses();
     this.moses.patch(this.highlightMat);
+    this.moses.patch(this.edgeMat);
 
     this.raycaster = new THREE.Raycaster();
     this.raycaster.firstHitOnly = true;
@@ -186,7 +234,9 @@ export class Viewer {
     this.clearHighlight();
     for (const m of this.meshes) this.disposeMesh(m);
     this.meshes = [];
-    for (const g of this.groups.values()) g.removeFromParent();
+    for (const l of this.edgeLines.values()) { l.geometry.dispose(); l.removeFromParent(); }
+    this.edgeLines.clear();
+    for (const g of this.groups.values()) { g.userData.ao?.aoTex.value.dispose(); g.removeFromParent(); }
     this.groups.clear();
     this.refMatrix = null;
     this.doors.clear();
@@ -202,7 +252,7 @@ export class Viewer {
    * `coord` = posun modelu k počátku z web-ifc: model se maticí umístí do souřadnic prvního modelu.
    * Vrátí false, když je model dál než FAR_APART (jiný souřadnicový systém) a zůstal v počátku.
    */
-  addModel(modelID, buckets, fit = true, coord = null, doors = [], storeys = []) {
+  addModel(modelID, buckets, fit = true, coord = null, doors = [], storeys = [], edges = null, ao = null) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
     group.userData.modelID = modelID;
@@ -220,6 +270,8 @@ export class Viewer {
     this.modelRoot.add(group);
     group.updateMatrixWorld(true);
     this.groups.set(modelID, group);
+    group.userData.ao = aoUniforms(ao);
+    const shade = shadeAO(group.userData.ao);
     // neprůhledné napřed, průhledné (okna) až po nich
     buckets.sort((a, b) => b.color[3] - a.color[3]);
     for (const b of buckets) {
@@ -236,8 +288,12 @@ export class Viewer {
       const transparent = a < 0.99;
       const mat = new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r, gg, bb, THREE.SRGBColorSpace) });
       mat.userData.alpha = a;
+      // plochy kousek dál od kamery, aby na nich obrysové hrany ležely a neprobleskovaly
+      mat.polygonOffset = true;
+      mat.polygonOffsetFactor = 1;
+      mat.polygonOffsetUnits = 1;
       this.applyMaterialQuality(mat);
-      this.moses.patch(mat);
+      this.moses.patch(mat, shade);
       const mesh = new THREE.Mesh(g, mat);
       mesh.userData.origColor = mat.color.clone();
       mesh.userData.ranges = b.ranges;
@@ -248,6 +304,17 @@ export class Viewer {
       group.add(mesh);
       mesh.updateMatrixWorld(true);
       this.meshes.push(mesh);
+    }
+    if (edges?.length) {
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.BufferAttribute(edges, 3));
+      const lines = new THREE.LineSegments(lg, this.edgeMat);
+      lines.raycast = () => {};
+      lines.matrixAutoUpdate = false;
+      lines.visible = this.edgesOn;
+      group.add(lines);
+      lines.updateMatrixWorld(true);
+      this.edgeLines.set(modelID, lines);
     }
     for (const d of doors || []) this.doors.set(doorKey({ model: modelID, id: d.id }), { ...d, model: modelID, open: false });
     this.updateBounds();
@@ -260,6 +327,17 @@ export class Viewer {
   setModelVisible(modelID, on) {
     if (!on && this.selectedId?.model === modelID) this.clearHighlight();
     for (const m of this.meshes) if (m.userData.modelID === modelID) m.visible = on;
+    const lines = this.edgeLines.get(modelID);
+    if (lines) lines.visible = on && this.edgesOn;
+    this.invalidate();
+  }
+
+  /** Obrysové hrany zapnout / vypnout (u skrytých modelů zůstanou skryté). */
+  setEdges(on) {
+    this.edgesOn = on;
+    for (const [modelID, lines] of this.edgeLines) {
+      lines.visible = on && this.meshes.some((m) => m.userData.modelID === modelID && m.visible);
+    }
     this.invalidate();
   }
 
@@ -278,6 +356,9 @@ export class Viewer {
     if (this.selectedId?.model === modelID) this.clearHighlight();
     for (const m of this.meshes) if (m.userData.modelID === modelID) this.disposeMesh(m);
     this.meshes = this.meshes.filter((m) => m.userData.modelID !== modelID);
+    const lines = this.edgeLines.get(modelID);
+    if (lines) { lines.geometry.dispose(); lines.removeFromParent(); this.edgeLines.delete(modelID); }
+    this.groups.get(modelID)?.userData.ao?.aoTex.value.dispose();
     this.groups.get(modelID)?.removeFromParent();
     this.groups.delete(modelID);
     for (const [k, d] of this.doors) if (d.model === modelID) { this.doors.delete(k); this.swinging.delete(d); }

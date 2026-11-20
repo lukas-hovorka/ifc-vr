@@ -7,6 +7,7 @@ import { BufferGeometry, BufferAttribute, Matrix4 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
 import { findLeaves, NOT_SWINGING } from './doors.js';
+import { featureEdges, aoVolume } from './shading.js';
 
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
@@ -114,6 +115,8 @@ async function load(buffer, key, name) {
   if (cached) {
     const gid = nextID++;
     const transfer = [];
+    if (cached.edges) transfer.push(cached.edges.buffer);
+    if (cached.ao) transfer.push(cached.ao.data.buffer);
     for (const b of cached.buckets) {
       transfer.push(b.position.buffer, b.normal.buffer, b.index.buffer, b.ranges.buffer);
       if (b.bvh) { transfer.push(...b.bvh.roots); if (b.bvh.indirectBuffer) transfer.push(b.bvh.indirectBuffer.buffer); }
@@ -126,7 +129,7 @@ async function load(buffer, key, name) {
       opening.set(gid, p);
       return p;
     };
-    return { result: { modelID: gid, ...cached.meta, cached: true, buckets: cached.buckets }, transfer, after };
+    return { result: { modelID: gid, ...cached.meta, cached: true, buckets: cached.buckets, edges: cached.edges, ao: cached.ao }, transfer, after };
   }
   let out = null;
   await withApi(buffer.byteLength, (local) => {
@@ -136,11 +139,11 @@ async function load(buffer, key, name) {
     models.set(gid, { api, local, ...structure });
     out = { gid, ...geo };
   });
-  const { gid, meta, buckets, transfer } = out;
+  const { gid, meta, buckets, edges, ao, transfer } = out;
   // pole se do mezipaměti zkopírují při zahájení zápisu; teprve potom je smí převzít hlavní vlákno
   progress('save', 0);
-  pendingPut = (await cachePut(key, name, { meta, buckets })).done;
-  return { result: { modelID: gid, ...meta, cached: false, buckets }, transfer };
+  pendingPut = (await cachePut(key, name, { meta, buckets, edges, ao })).done;
+  return { result: { modelID: gid, ...meta, cached: false, buckets, edges, ao }, transfer };
 }
 
 /** Otevře model v instanci, kam se vejde, a spustí nad ním fn(localID); při chybě paměti zkusí novou instanci. */
@@ -247,6 +250,8 @@ function buildGeometry(modelID) {
 
   const buckets = new Map();
   let elements = 0;
+  /** obrysové hrany celého modelu (úsečky, 6 čísel na úsečku) */
+  const edges = new Grow(Float32Array);
   // dveře: díly se před zápisem roztřídí na zárubeň a křídla (křídla jdou v prohlížeči otočit)
   const doorIds = new Set(idsOfType(modelID, WebIFC.IFCDOOR));
   const ops = doorOps(modelID, doorIds);
@@ -261,13 +266,20 @@ function buildGeometry(modelID) {
     }
     return b;
   };
-  /** Zapíše díl do skupiny podle barvy; vrátí [klíč skupiny, začátek, počet indexů]. */
-  const append = (id, b, verts, m, inds) => {
+  /**
+   * Zapíše díl do skupiny podle barvy; vrátí [klíč skupiny, začátek, počet indexů].
+   * `outline` = obrysové hrany (ne u křídel dveří: otáčí se).
+   */
+  const append = (id, b, verts, m, inds, outline = true) => {
     const vCount = verts.length / 6;
+    const P = new Float32Array(vCount * 3), N = new Float32Array(vCount * 3);
+    transform(verts, m, P, N, 0);
+    if (outline) featureEdges(P, inds, edges);
     const base = b.pos.n / 3;
     b.pos.reserve(vCount * 3);
     b.nrm.reserve(vCount * 3);
-    transform(verts, m, b.pos.a, b.nrm.a, b.pos.n);
+    b.pos.a.set(P, b.pos.n);
+    b.nrm.a.set(N, b.pos.n);
     b.pos.n += vCount * 3; b.nrm.n = b.pos.n;
     const start = b.idx.n;
     b.idx.reserve(inds.length);
@@ -347,7 +359,7 @@ function buildGeometry(modelID) {
     doors.push({
       id,
       leaves: found.leaves.map((l) => ({
-        segs: l.parts.map((i) => append(id, bucketFor(parts[i].pg.color), parts[i].verts, parts[i].pg.m, parts[i].inds)),
+        segs: l.parts.map((i) => append(id, bucketFor(parts[i].pg.color), parts[i].verts, parts[i].pg.m, parts[i].inds, false)),
         u: l.u, v: l.v, hinge: l.hinge, half: l.half,
       })),
     });
@@ -366,6 +378,13 @@ function buildGeometry(modelID) {
   const list = [...buckets.values()].filter((b) => b.idx.n);
   const totalTris = Math.max(list.reduce((s, b) => s + b.idx.n, 0), 1);
   let doneTris = 0;
+  // zastínění koutů (prostorová mřížka kolem ploch); výsledek jde do mezipaměti, podruhé se nepočítá
+  progress('ao', 0);
+  let ao = null;
+  try {
+    ao = aoVolume(list.map((b) => ({ position: b.pos.a.subarray(0, b.pos.n), index: b.idx.a.subarray(0, b.idx.n), color: b.color })), (v) => progress('ao', v));
+  } catch (e) { console.warn('Zastínění koutů nejde spočítat', e); }
+  if (ao) transfer.push(ao.data.buffer);
   progress('bvh', 0);
   for (const b of list) {
     const item = {
@@ -394,7 +413,9 @@ function buildGeometry(modelID) {
     progress('bvh', doneTris / totalTris);
     out.push(item);
   }
-  return { meta: { schema, elements, simplified, coord, doors, storeys }, buckets: out, transfer };
+  const edgeArr = edges.result();
+  transfer.push(edgeArr.buffer);
+  return { meta: { schema, elements, simplified, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer };
 }
 
 /**

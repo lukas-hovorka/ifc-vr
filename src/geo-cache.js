@@ -3,8 +3,9 @@
 // indexů a stromu pro výběr. Záznam platí pro název + velikost + datum změny souboru a verzi
 // zpracování; při změně výpočtu geometrie se zvedne VERSION a staré záznamy se nepoužijí.
 
-/** 2: křídla dveří (meta.doors, klíč skupiny barvy), 3: výšky podlaží (meta.storeys), 4: oprava výšek podlaží */
-const VERSION = 4;
+/** 2: křídla dveří (meta.doors, klíč skupiny barvy), 3: výšky podlaží (meta.storeys), 4: oprava výšek podlaží,
+ * 5: zastínění koutů (ao: prostorová mřížka) a obrysové hrany (edges) */
+const VERSION = 5;
 const DB = 'ifc-vr-geometrie';
 /** Mezipaměť nesmí zabrat víc než tolik z místa, které prohlížeč stránce dovolí. */
 const SHARE = 0.5;
@@ -57,7 +58,7 @@ export async function cacheGet(key) {
  */
 export function cachePut(key, name, record) {
   if (!key) return Promise.resolve({ done: Promise.resolve() });
-  let bytes = 0;
+  let bytes = (record.edges?.byteLength || 0) + (record.ao?.data.byteLength || 0);
   for (const b of record.buckets) {
     bytes += b.position.byteLength + b.normal.byteLength + b.index.byteLength + b.ranges.byteLength;
     if (b.bvh) bytes += b.bvh.roots.reduce((s, r) => s + r.byteLength, 0) + (b.bvh.indirectBuffer?.byteLength || 0);

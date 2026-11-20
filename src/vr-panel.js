@@ -85,6 +85,7 @@ export class VRPanel {
     }
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
+    if (r.key === 'edges') { this.onEdges?.(); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -322,9 +323,11 @@ export class VRPanel {
 
       // akce
       y += this.sectionLabel('Pohled', pad, y);
-      this.button('reset', 'Na začátek', pad, y, third);
-      this.button('grid', 'Mřížka', pad + third + gap, y, third, { active: st.grid !== false });
-      this.button('exit', 'Ukončit VR', pad + 2 * (third + gap), y, third);
+      const q4 = (inner - 3 * gap) / 4;
+      this.button('reset', 'Na začátek', pad, y, q4);
+      this.button('grid', 'Mřížka', pad + q4 + gap, y, q4, { active: st.grid !== false });
+      this.button('edges', 'Hrany', pad + 2 * (q4 + gap), y, q4, { active: !!st.edges });
+      this.button('exit', 'Ukončit VR', pad + 3 * (q4 + gap), y, q4);
       y += bh + pad;
 
       // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)

@@ -45,3 +45,14 @@ export function loadQuality() {
 export function saveQuality(q) {
   try { localStorage.setItem(KEY, q); } catch { /* bez úložiště */ }
 }
+
+const EDGES_KEY = 'ifcvr.edges';
+
+/** Obrysové hrany zapnuté (zapamatovaná volba, výchozí vypnuto). */
+export function loadEdges() {
+  try { return localStorage.getItem(EDGES_KEY) === '1'; } catch { return false; }
+}
+
+export function saveEdges(on) {
+  try { localStorage.setItem(EDGES_KEY, on ? '1' : '0'); } catch { /* bez úložiště */ }
+}

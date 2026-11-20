@@ -49,8 +49,8 @@ export class Moses {
     return p.y > c.y && Math.hypot(p.x - c.x, p.z - c.z) < u.mosesRadius.value;
   }
 
-  /** Doplní do materiálu výřez (shader). Materiál si drží sdílené uniformy. */
-  patch(mat) {
+  /** Doplní do materiálu výřez (shader). Materiál si drží sdílené uniformy. `extra(shader)` = další úprava shaderu. */
+  patch(mat, extra = null) {
     const uniforms = this.uniforms;
     mat.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, uniforms);
@@ -65,8 +65,9 @@ export class Moses {
           if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius) discard;`)
         .replace('#include <dithering_fragment>', `#include <dithering_fragment>
           if (mosesRadius > 0.001 && mosesAbove && mosesD < mosesRadius + ${RIM.toFixed(3)}) gl_FragColor.rgb = mosesRim;`);
+      extra?.(shader);
     };
-    mat.customProgramCacheKey = () => 'moses';
+    mat.customProgramCacheKey = () => (extra ? 'moses+' : 'moses');
     mat.needsUpdate = true;
   }
 }

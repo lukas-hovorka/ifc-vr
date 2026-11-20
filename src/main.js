@@ -1,5 +1,5 @@
 import { Viewer } from './viewer.js';
-import { QUALITY, loadQuality, saveQuality } from './quality.js';
+import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
@@ -183,12 +183,12 @@ const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == 
 // Jeden pruh pro právě načítaný soubor (fáze mají pevné úseky), nad ním název a pořadí v dávce.
 const PHASES = {
   read: 'Čtu soubor', download: 'Stahuji', parse: 'Otevírám model',
-  geometry: 'Zpracovávám geometrii', structure: 'Čtu strukturu modelu', bvh: 'Připravuji výběr prvků',
+  geometry: 'Zpracovávám geometrii', ao: 'Počítám zastínění koutů', structure: 'Čtu strukturu modelu', bvh: 'Připravuji výběr prvků',
   cache: 'Hledám v mezipaměti', save: 'Ukládám do mezipaměti',
 };
 const RANGES = {
-  file: { read: [0, 0.1], cache: [0.1, 0.11], parse: [0.11, 0.2], geometry: [0.2, 0.9], structure: [0.9, 0.93], bvh: [0.93, 0.99], save: [0.99, 1] },
-  url: { download: [0, 0.4], cache: [0.4, 0.41], parse: [0.41, 0.48], geometry: [0.48, 0.92], structure: [0.92, 0.94], bvh: [0.94, 0.99], save: [0.99, 1] },
+  file: { read: [0, 0.1], cache: [0.1, 0.11], parse: [0.11, 0.2], geometry: [0.2, 0.85], ao: [0.85, 0.9], bvh: [0.9, 0.95], structure: [0.95, 0.98], save: [0.98, 1] },
+  url: { download: [0, 0.4], cache: [0.4, 0.41], parse: [0.41, 0.48], geometry: [0.48, 0.88], ao: [0.88, 0.92], bvh: [0.92, 0.96], structure: [0.96, 0.98], save: [0.98, 1] },
 };
 const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
@@ -387,7 +387,7 @@ async function loadBuffer(buffer, name, key = '') {
     await ready;
     const size = buffer.byteLength;
     const res = await call('load', { buffer, key, name }, [buffer]);
-    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys);
+    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys, res.edges, res.ao);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, schema: res.schema || '', elements: res.elements, tris, visible: true, color: null, custom: null });
@@ -858,6 +858,26 @@ for (const r of MOSES_RADII) {
 }
 xr.panel.onMoses = (r) => setMoses(r);
 setMoses(0);
+
+// ---------- obrysové hrany ----------
+function setEdges(on) {
+  viewer.setEdges(on);
+  saveEdges(on);
+  for (const b of $('edges').querySelectorAll('[data-on]')) b.setAttribute('aria-pressed', String((b.dataset.on === '1') === on));
+  xr.panel.set({ edges: on });
+}
+for (const [on, label, title] of [[false, 'Vyp.', 'Bez obrysových hran'], [true, 'Zap.', 'Obrysy hran prvků (jako na výkrese)']]) {
+  const b = document.createElement('button');
+  b.className = 'ebc-filter';
+  b.type = 'button';
+  b.dataset.on = on ? '1' : '0';
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', () => setEdges(on));
+  $('edges').appendChild(b);
+}
+xr.panel.onEdges = () => setEdges(!viewer.edgesOn);
+setEdges(loadEdges());
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };

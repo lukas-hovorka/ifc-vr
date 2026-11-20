@@ -23,6 +23,10 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   nic nekreslí (zdi, stropy, nábytek), podlaha zůstane, okraj výřezu je oranžový; je vidět dovnitř budovy.
   Ve VR kolem vás (panel u levé ruky), na počítači kolem středu otáčení od podlahy jeho podlaží. Co je ve výřezu,
   nejde vybrat ani na to teleportovat
+- **zastínění koutů**: spoje zdí s podlahou a stropem, kouty a prostor pod nábytkem jsou tmavší (prostor
+  působí plastičtěji). Počítá se jednou při načtení (u velkého modelu asi sekundu) a ukládá se do mezipaměti
+- **obrysové hrany** (volba *Obrysové hrany* na počítači, tlačítko **Hrany** ve VR; výchozí vypnuto): tmavé
+  čáry na hranách prvků jako na výkrese, zdi a stropy stejné barvy se od sebe lépe odliší
 - **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
@@ -119,6 +123,7 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 | Frekvence brýlí | 90 Hz | 72 Hz | 72 Hz |
 | Rubové strany ploch (pohled zevnitř zdi, plochy s otočenou normálou) | kreslí se | ne | ne |
 | Okna a sklo | průhledná | průhledná | neprůhledná |
+| Zastínění koutů | ano | ano | ano |
 
 Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. Úspory, které nejsou vidět, platí
 ve všech úrovních:
