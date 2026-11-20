@@ -25,24 +25,28 @@ export class PlanMap {
   /** Půdorysy se nakreslí znovu (změna modelů, viditelnosti, barvy). */
   invalidate() { this.version++; this.cache.clear(); }
 
-  /** Podlaží všech modelů sloučená podle výšky: [{ name, label (krátký popisek), y }] odspodu. */
+  /**
+   * Podlaží všech modelů sloučená podle výšky: [{ name, label (krátký popisek), y }] odspodu. Když se
+   * podlaží v různých modelech jmenuje jinak, popisek uvede všechny názvy („4. NP/4NP“).
+   */
   levels() {
+    const storeys = this.v.storeys;
+    // krátké popisky po modelech: bez společné přípony („1.NP_SO-101“, „2.NP_SO-101“ → „1.NP“, „2.NP“)
+    const short = new Map();
+    for (const model of new Set(storeys.map((st) => st.model))) {
+      const names = [...new Set(storeys.filter((st) => st.model === model).map((st) => st.name))];
+      const cut = commonSuffix(names);
+      for (const n of names) short.set(`${model}|${n}`, cut ? n.slice(0, n.length - cut).trim() : n);
+    }
     const out = [];
-    for (const st of this.v.storeys) {
-      const same = out.find((l) => Math.abs(l.y - st.y) < SAME_LEVEL);
-      if (!same) out.push({ name: st.name, label: st.name, y: st.y });
+    for (const st of storeys) {
+      let l = out.find((x) => Math.abs(x.y - st.y) < SAME_LEVEL);
+      if (!l) out.push((l = { names: [], labels: [], y: st.y }));
+      const label = short.get(`${st.model}|${st.name}`);
+      if (!l.names.includes(st.name)) l.names.push(st.name);
+      if (!l.labels.includes(label)) l.labels.push(label);
     }
-    // krátké popisky: bez společné přípony („1.NP_SO-101“, „2.NP_SO-101“ → „1.NP“, „2.NP“)
-    if (out.length > 1) {
-      let k = 0;
-      const ref = out[0].name;
-      while (k < ref.length && out.every((l) => l.name.length > k && l.name[l.name.length - 1 - k] === ref[ref.length - 1 - k])) k++;
-      const suffix = ref.slice(ref.length - k).replace(/^[^_\s\-–(]*/, '');
-      if (suffix.length >= 2 && out.every((l) => l.name.length > suffix.length)) {
-        for (const l of out) l.label = l.name.slice(0, l.name.length - suffix.length).trim();
-      }
-    }
-    return out;
+    return out.map((l) => ({ name: l.names.join(' / '), label: l.labels.join('/'), y: l.y }));
   }
 
   /** Index podlaží, na kterém je výška y (podlaha pod ní). */
@@ -173,6 +177,19 @@ export class PlanMap {
     if (hit.point.y > level.y + MAX_STEP || hit.point.y < level.y - BELOW - 0.5) return null;
     return hit.point;
   }
+}
+
+/**
+ * Délka společné přípony názvů podlaží, kterou jde odříznout (od oddělovače „_“, mezery, „-“, „(“),
+ * nebo 0. Jeden název nic neodřízne.
+ */
+function commonSuffix(names) {
+  if (names.length < 2) return 0;
+  const ref = names[0];
+  let k = 0;
+  while (k < ref.length && names.every((n) => n.length > k && n[n.length - 1 - k] === ref[ref.length - 1 - k])) k++;
+  const suffix = ref.slice(ref.length - k).replace(/^[^_\s\-–(]*/, '');
+  return suffix.length >= 2 && names.every((n) => n.length > suffix.length) ? suffix.length : 0;
 }
 
 /** Značka uživatele v mapě: kolečko a výseč pohledu (dx, dy = směr pohledu v rovině obrázku). */
