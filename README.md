@@ -125,7 +125,7 @@ tam není, modely se načítají ze souboru nebo přes `?model=https://…/model
 | Okna a sklo | průhledná | průhledná | neprůhledná |
 | Zastínění koutů | ano | ano | ne |
 
-Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. Úspory, které nejsou vidět, platí
+Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. Záhlaví panelu ve VR ukazuje snímky za sekundu a frekvenci displeje (např. „70 / 72 snímků/s“), žlutě, když brýle nestíhají. Úspory, které nejsou vidět, platí
 ve všech úrovních:
 
 - Zpracovaná geometrie se ukládá do mezipaměti prohlížeče (IndexedDB). Další otevření stejného souboru

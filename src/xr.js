@@ -361,6 +361,13 @@ export class XRControls {
         v.moses.setCenter(head.x, v.rig.position.y, head.z);
       } else v.moses.setCenter(1e9, 0, 1e9);
     }
+    // snímky za sekundu na panelu (jednou za sekundu)
+    this.fpsT = (this.fpsT || 0) + dt;
+    this.fpsN = (this.fpsN || 0) + 1;
+    if (this.fpsT >= 1) {
+      this.panel.setFps(this.fpsN / this.fpsT, session.frameRate);
+      this.fpsT = 0; this.fpsN = 0;
+    }
     // mapa na panelu: poloha uživatele se překresluje dvakrát za sekundu
     if (this.panel.state.tab === 'map' && this.panel.mesh.visible) {
       this.mapTimer = (this.mapTimer || 0) + dt;

@@ -25,6 +25,8 @@ export class Moses {
     /** materiály s výřezem; `discard` v shaderu je jen při zapnutém módu (MOSES_CUT) */
     this.mats = new Set();
     this.cut = false;
+    /** volá se při zapnutí / vypnutí výřezu v shaderech (on) */
+    this.onCut = null;
   }
 
   get active() { return this.uniforms.mosesRadius.value > 0.001; }
@@ -54,6 +56,27 @@ export class Moses {
     if (on === this.cut) return;
     this.cut = on;
     for (const m of this.mats) setDefine(m, 'MOSES_CUT', on);
+    this.onCut?.(on);
+  }
+
+  /**
+   * Paprsek (svět) zasáhl v t bod ve výřezu: vzdálenost, kde paprsek z výřezu vyjde (válec nad nohama).
+   * Výběr pak hledá další zásah až za ní, místo procházení všech ploch ve výřezu.
+   */
+  exitDistance(ray, t) {
+    const u = this.uniforms, c = u.mosesCenter.value, r = u.mosesRadius.value;
+    const o = ray.origin, d = ray.direction;
+    const ox = o.x - c.x, oz = o.z - c.z;
+    const a = d.x * d.x + d.z * d.z;
+    let end = Infinity;
+    if (a > 1e-12) {
+      const b = 2 * (ox * d.x + oz * d.z), cc = ox * ox + oz * oz - r * r;
+      const disc = b * b - 4 * a * cc;
+      end = disc > 0 ? (-b + Math.sqrt(disc)) / (2 * a) : t;
+    }
+    // nad úrovní nohou: paprsek dolů z výřezu vyjde, až klesne pod ni
+    if (d.y < -1e-9) end = Math.min(end, (c.y - o.y) / d.y);
+    return Math.max(end, t) + 1e-4;
   }
 
   /** Materiál se ruší: přestat ho sledovat. */

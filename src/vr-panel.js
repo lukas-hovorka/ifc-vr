@@ -11,6 +11,7 @@ const W = 1024;          // šířka canvasu v px
 const H = 1700;          // výška canvasu v px
 const S = 2.6;           // zvětšení tokenů (px EBC → px canvasu)
 const WIDTH_M = 0.26;    // šířka panelu v metrech
+const FPS_W = 330;       // šířka ukazatele snímků za sekundu v px canvasu
 
 export const HELP = [
   ['Levá páčka', 'chůze'],
@@ -38,6 +39,22 @@ export class VRPanel {
     );
     this.mesh.name = 'vr-panel';
     this.mesh.renderOrder = 20;
+    // snímky za sekundu: vlastní malý obrázek v záhlaví (překresluje se každou sekundu, celý panel ne)
+    this.fpsCanvas = document.createElement('canvas');
+    this.fpsCanvas.width = FPS_W;
+    this.fpsCanvas.height = Math.round(px('size.titlebar.height') * S);
+    this.fpsTexture = new THREE.CanvasTexture(this.fpsCanvas);
+    this.fpsTexture.colorSpace = THREE.SRGBColorSpace;
+    const k = WIDTH_M / W;
+    this.fpsMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(FPS_W * k, this.fpsCanvas.height * k),
+      new THREE.MeshBasicMaterial({ map: this.fpsTexture, transparent: true, toneMapped: false }),
+    );
+    this.fpsMesh.position.set(WIDTH_M / 2 - (FPS_W / 2 + px('space.20') * S * 0.5) * k, h / 2 - (this.fpsCanvas.height / 2) * k, 0.0005);
+    this.fpsMesh.renderOrder = 21;
+    this.fpsMesh.raycast = () => {};
+    this.mesh.add(this.fpsMesh);
+    this.setFps(0, 0);
     this.regions = [];
     this.hover = null;
     this.state = { modelName: '', mode: 'full', info: null, page: 0, message: '', tab: 'info', models: [], mpage: 0 };
@@ -51,6 +68,23 @@ export class VRPanel {
     this.onMap = null;
     this.pointer = { x: 0, y: 0 };
     this.draw();
+  }
+
+  /** Snímky za sekundu v záhlaví; žlutě, když brýle nestíhají frekvenci displeje (rate). */
+  setFps(fps, rate) {
+    const c = this.fpsCanvas.getContext('2d');
+    const w = this.fpsCanvas.width, h = this.fpsCanvas.height;
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = t('color.bg.chrome');
+    c.fillRect(0, 0, w, h);
+    if (fps > 0) {
+      c.font = font('typography.caption-bar', S);
+      c.textAlign = 'right';
+      c.textBaseline = 'middle';
+      c.fillStyle = rate && fps < rate * 0.9 ? t('color.text.warning') : t('color.text.secondary');
+      c.fillText(`${Math.round(fps)}${rate ? ` / ${Math.round(rate)}` : ''} snímků/s`, w, h / 2);
+    }
+    this.fpsTexture.needsUpdate = true;
   }
 
   set(patch) {
@@ -306,7 +340,7 @@ export class VRPanel {
     c.font = font('typography.caption-bar', S);
     c.fillStyle = t('color.text.secondary');
     const x0 = pad + wIfc + c.measureText('.vr').width + gap * 2;
-    c.fillText(this.ellipsize(st.modelName || 'Žádný model', W - x0 - pad), x0, headH / 2);
+    c.fillText(this.ellipsize(st.modelName || 'Žádný model', W - x0 - pad - FPS_W), x0, headH / 2);
 
     let y = headH + pad;
 

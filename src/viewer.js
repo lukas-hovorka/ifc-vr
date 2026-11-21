@@ -132,6 +132,8 @@ export class Viewer {
     this.selectedId = null;
     /** Mojžíšův mód: výřez modelu kolem uživatele (shader + výběr a teleport ho respektují) */
     this.moses = new Moses();
+    // po vypnutí výřezu vrátit frekvenci brýlí (při zapnutém ji mohly snížit, protože nestíhaly)
+    this.moses.onCut = (on) => { if (!on) this.applyFrameRate(); };
     this.moses.patch(this.highlightMat);
     this.moses.patch(this.edgeMat);
 
@@ -230,6 +232,7 @@ export class Viewer {
 
   /** Obnovovací frekvence brýlí podle úrovně (nejbližší podporovaná nižší nebo stejná). */
   applyFrameRate() {
+    this.fpsWatch = { t: 0, n: 0, slow: 0 };
     const s = this.renderer.xr.getSession?.();
     const rates = s?.supportedFrameRates;
     if (!s?.updateTargetFrameRate || !rates?.length) return;
@@ -502,12 +505,21 @@ export class Viewer {
    * vybrat ani na ně teleportovat). Ve výřezu je potřeba všechny zásahy, ne jen první.
    */
   raycast(raycaster, objects) {
-    if (!this.moses.active) return raycaster.intersectObjects(objects, false).sort((a, b) => a.distance - b.distance);
-    const first = raycaster.firstHitOnly;
-    raycaster.firstHitOnly = false;
+    const near = (a, b) => a.distance - b.distance;
+    if (!this.moses.active) return raycaster.intersectObjects(objects, false).sort(near);
+    // zásah ve výřezu: hledat dál až za místem, kde paprsek z výřezu vyjde (ne všechny plochy po cestě –
+    // to by u paprsku ovladače přes celou budovu stálo každý snímek desítky milisekund)
+    const near0 = raycaster.near;
     try {
-      return raycaster.intersectObjects(objects, false).filter((h) => !this.moses.hides(h.point)).sort((a, b) => a.distance - b.distance);
-    } finally { raycaster.firstHitOnly = first; }
+      for (let i = 0; i < 4; i++) {
+        const hits = raycaster.intersectObjects(objects, false).sort(near);
+        const h = hits[0];
+        if (!h || !this.moses.hides(h.point)) return hits.filter((x) => !this.moses.hides(x.point));
+        raycaster.near = this.moses.exitDistance(raycaster.ray, h.distance);
+        if (raycaster.near >= raycaster.far) return [];
+      }
+      return [];
+    } finally { raycaster.near = near0; }
   }
 
   /** Na počítači: výřez kolem středu otáčení, od podlahy podlaží, ve kterém střed leží. */
