@@ -3,7 +3,8 @@
 import * as THREE from 'three';
 import { GRID_BELOW } from './viewer.js';
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
-import { VRPanel } from './vr-panel.js';
+import { VRPanel, PANEL } from './vr-panel.js';
+import { InfoPanel } from './vr-info.js';
 import { t } from './theme.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -13,6 +14,9 @@ const SNAP = THREE.MathUtils.degToRad(30);
 const ARC_SPEED = 9;         // počáteční rychlost paraboly teleportu m/s
 const MAKETA_SIZE = 1.0;     // největší rozměr makety v m
 const TABLE_HEIGHT = 0.8;    // výška spodku makety nad podlahou
+const HUD_SIDE = 0.03;       // karta začíná tolik vpravo od levého ovladače (m)
+const HUD_LIFT = 0.03;       // …a tolik nad ním
+const HUD_GAP = 0.015;       // mezera mezi hlavní kartou a kartou vybraného prvku
 
 export class XRControls {
   constructor(viewer, { onSelect, onExit }) {
@@ -100,15 +104,29 @@ export class XRControls {
       exit: () => this.v.renderer.xr.getSession()?.end(),
     };
     this.panel.set({ grid: true });
+    // panel vybraného prvku vpravo vedle hlavního
+    this.info = new InfoPanel();
+    // obě karty drží levá ruka za levý dolní roh (ovladač je vedle karty, ne pod ní)
+    this.hud = new THREE.Group();
+    this.hud.name = 'vr-hud';
+    this.hud.rotation.set(-0.9, -0.3, 0, 'XYZ');
+    const w = PANEL.WIDTH_M, h = PANEL.HEIGHT_M;
+    this.panel.mesh.position.set(HUD_SIDE + w / 2, HUD_LIFT + h / 2, 0);
+    this.info.mesh.position.set(HUD_SIDE + w + HUD_GAP + w / 2, HUD_LIFT + h / 2, 0);
+    this.hud.add(this.panel.mesh, this.info.mesh);
     this.passthrough = false;
+  }
+
+  /** Karty, na které jde mířit (viditelné). */
+  get panels() {
+    if (!this.hud.visible || !this.hud.parent) return [];
+    return [this.panel, this.info].filter((p) => p.mesh.visible);
   }
 
   attachHandUI(entry) {
     if (entry.hand === 'left') {
-      // panel nad levým ovladačem, nakloněný k uživateli
-      entry.grip.add(this.panel.mesh);
-      this.panel.mesh.position.set(0.0, 0.07, -0.16);
-      this.panel.mesh.rotation.set(-0.9, 0, 0);
+      // karty u levého ovladače, nakloněné k uživateli
+      entry.grip.add(this.hud);
     }
     if (entry.hand === 'right') entry.controller.add(this.ray);
   }
@@ -201,7 +219,8 @@ export class XRControls {
   // ---------- vstupy ----------
   onTrigger(entry) {
     if (entry.hand !== 'right') return;
-    if (this.panel.mesh.visible && this.panel.hover) { this.panel.click(); return; }
+    const p = this.panels.find((x) => x.hover);
+    if (p) { p.click(); return; }
     this.setRayFrom(entry.controller);
     const hit = this.v.intersect(this.raycaster);
     this.onSelect(hit ? hit.id : null);
@@ -369,7 +388,7 @@ export class XRControls {
       this.fpsT = 0; this.fpsN = 0;
     }
     // mapa na panelu: poloha uživatele se překresluje dvakrát za sekundu
-    if (this.panel.state.tab === 'map' && this.panel.mesh.visible) {
+    if (this.panel.state.tab === 'map' && this.hud.visible) {
       this.mapTimer = (this.mapTimer || 0) + dt;
       if (this.mapTimer > 0.5) { this.mapTimer = 0; this.panel.draw(); }
     }
@@ -390,7 +409,7 @@ export class XRControls {
         const right = this.tmp.v2.crossVectors(fwd, UP).normalize();
         v.rig.position.addScaledVector(fwd, -y * MOVE_SPEED * dt).addScaledVector(right, x * MOVE_SPEED * dt);
       }
-      if (this.pressedEdge('left', lgp, 4)) this.panel.mesh.visible = !this.panel.mesh.visible;
+      if (this.pressedEdge('left', lgp, 4)) this.hud.visible = !this.hud.visible;
       if (this.pressedEdge('left', lgp, 5)) this.setMode(this.mode === 'full' ? 'mini' : 'full');
     }
 
@@ -422,12 +441,14 @@ export class XRControls {
       this.setRayFrom(R.controller);
       let dist = 5;
       let onPanel = false;
-      if (this.panel.mesh.visible && this.panel.mesh.parent) {
-        const ph = this.raycaster.intersectObject(this.panel.mesh, false)[0];
-        if (ph) { this.panel.pointAt(ph.uv); onPanel = true; dist = ph.distance; this.cursor.position.copy(ph.point); }
+      let best = null;
+      for (const p of this.panels) {
+        const ph = this.raycaster.intersectObject(p.mesh, false)[0];
+        if (ph && (!best || ph.distance < best.ph.distance)) best = { p, ph };
       }
+      for (const p of [this.panel, this.info]) if (p !== best?.p) p.clearHover();
+      if (best) { best.p.pointAt(best.ph.uv); onPanel = true; dist = best.ph.distance; this.cursor.position.copy(best.ph.point); }
       if (!onPanel) {
-        this.panel.clearHover();
         const hit = v.intersect(this.raycaster);
         if (hit) { dist = hit.distance; this.cursor.position.copy(hit.point); }
         this.cursor.visible = !!hit;

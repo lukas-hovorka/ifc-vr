@@ -15,7 +15,9 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   výšce je mřížka a podlaha pro teleport mimo budovu
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
   úchopem se posouvá, oběma rukama otáčí a zvětšuje
-- výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství) na panelu u levé ruky
+- výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství); ve VR na vlastní kartě
+  vpravo vedle panelu u levé ruky (karty se drží za levý dolní roh). Výběr se zruší tlačítkem *Zrušit výběr*
+  nebo spouští znovu na vybraný prvek
 - **mapa**: půdorys podlaží (pohled shora, řez 1,2 m nad podlahou) s polohou a směrem pohledu uživatele;
   klepnutím do půdorysu se přesunete na místo – na počítači tlačítko *Mapa* (pohled z výšky očí), ve VR záložka
   **Mapa** na panelu u levé ruky. Přesun jde jen na podlahu podlaží nebo schod (ne do zdi, na nábytek ani mimo budovu)
@@ -30,7 +32,8 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
-  a otočné dveře se neotevírají.
+  a otočné dveře se neotevírají. Volba **Dveře: Automaticky** (na počítači i ve VR, pamatuje se) otevře dveře,
+  když k nim přijdete na 1 m, a zavře je, když odejdete dál než 2 m; dveře otevřené nebo zavřené ručně nechá.
 
 Technika: [three.js](https://threejs.org), [web-ifc](https://github.com/ThatOpen/engine_web-ifc) ve Web Workeru
 (geometrie se slučuje podle barvy kvůli výkonu brýlí), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)

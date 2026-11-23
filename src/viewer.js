@@ -14,6 +14,10 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const FAR_APART = 10000;
 /** Otevření dveří (90°) trvá tolik sekund. */
 const DOOR_TIME = 0.8;
+/** Automatické dveře: otevřou se, když je uživatel blíž než tolik metrů od středu dveří (půdorysně)… */
+const AUTO_OPEN = 1.0;
+/** …a zavřou se, až se vzdálí víc než tolik metrů. */
+const AUTO_CLOSE = 2.0;
 /**
  * Mřížka leží kousek pod podlahou 1NP: ve stejné výšce by prosvítala přes podlahové desky (z-fighting)
  * a desky s horní hranou o pár mm níž by překryla úplně.
@@ -114,6 +118,9 @@ export class Viewer {
     this.edgeMat = new THREE.LineBasicMaterial({ color: t('color.bg.deep') });
     /** dveře, jejichž křídla se právě otáčejí */
     this.swinging = new Set();
+    /** automatické otevírání dveří u uživatele (volba) */
+    this.autoDoors = false;
+    this.autoTimer = 0;
 
     this.ground = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
@@ -158,6 +165,7 @@ export class Viewer {
       if (xr) this.watchFrameRate(dt);
       if (!xr) this.controls.update(); // tlumení dobíhá přes událost change
       this.onBeforeRender?.(dt, frame);
+      if (this.autoDoors) this.tickAutoDoors(dt);
       this.tickDoors(dt);
       if (!xr && this.moses.target > 0) this.updateMosesDesktop();
       if (this.moses.tick(dt)) this.dirty = true;
@@ -348,7 +356,9 @@ export class Viewer {
       lines.updateMatrixWorld(true);
       this.edgeLines.set(modelID, lines);
     }
-    for (const d of doors || []) this.doors.set(doorKey({ model: modelID, id: d.id }), { ...d, model: modelID, open: false });
+    for (const d of doors || []) {
+      this.doors.set(doorKey({ model: modelID, id: d.id }), { ...d, model: modelID, open: false, box: this.doorBox(modelID, d) });
+    }
     this.updateBounds();
     if (fit) this.fitView();
     this.invalidate();
@@ -591,13 +601,16 @@ export class Viewer {
   /**
    * Otevře / zavře dveře { model, id }. Křídlo se otočí o 90° kolem pantu, od pozorovatele (aby do něj
    * nenarazilo). Vrátí nový stav (true = otevřené), nebo null, když prvek nejsou dveře s křídly.
+   * `auto` = automatické dveře; ručně otevřené / zavřené dveře automatika nechá, dokud uživatel neodejde.
    */
-  toggleDoor(ref) {
+  toggleDoor(ref, auto = false) {
     const d = ref && this.doors.get(doorKey(ref));
     const group = d && this.groups.get(d.model);
     if (!group) return null;
     if (!d.built) this.buildLeaves(d, group);
     d.open = !d.open;
+    d.auto = auto && d.open;
+    d.hold = !auto;
     if (d.open) {
       const cam = this.camera; // ve VR poloha hlavy ve světě (i s posunem rigu)
       group.updateWorldMatrix(true, false);
@@ -615,7 +628,59 @@ export class Viewer {
     } else for (const l of d.leaves) l.target = 0;
     this.swinging.add(d);
     this.invalidate();
+    this.onDoorToggle?.({ model: d.model, id: d.id }, d.open);
     return d.open;
+  }
+
+  /** Obálka křídel dveří (souřadnice modelu) – pro automatické otevírání. */
+  doorBox(modelID, d) {
+    const box = new THREE.Box3();
+    const byKey = new Map();
+    for (const m of this.meshes) if (m.userData.modelID === modelID && !m.userData.isLeaf) byKey.set(m.userData.key, m);
+    const p = new THREE.Vector3();
+    for (const l of d.leaves) {
+      for (const [key, start, count] of l.segs) {
+        const g = byKey.get(key)?.geometry;
+        if (!g) continue;
+        const idx = g.index.array, P = g.getAttribute('position').array;
+        for (let i = start; i < start + count; i++) box.expandByPoint(p.fromArray(P, idx[i] * 3));
+      }
+    }
+    return box.isEmpty() ? null : box;
+  }
+
+  /** Automatické dveře zapnout / vypnout (při vypnutí se automaticky otevřené zavřou). */
+  setAutoDoors(on) {
+    this.autoDoors = on;
+    for (const d of this.doors.values()) {
+      if (!on && d.auto && d.open) this.toggleDoor({ model: d.model, id: d.id }, true);
+      d.hold = false;
+    }
+  }
+
+  /** Dveře u uživatele se otevřou, vzdálené automaticky otevřené zavřou (5× za sekundu, ne v maketě). */
+  tickAutoDoors(dt) {
+    this.autoTimer += dt;
+    if (this.autoTimer < 0.2 || !this.doors.size) return;
+    this.autoTimer = 0;
+    if (Math.abs(this.modelRoot.scale.x - 1) > 1e-6) return; // maketa: model je zmenšený na stole
+    const eye = this.camera.getWorldPosition(new THREE.Vector3());
+    const local = new THREE.Vector3(), c = new THREE.Vector3();
+    for (const [model, group] of this.groups) {
+      group.updateWorldMatrix(true, false);
+      group.worldToLocal(local.copy(eye));
+      for (const d of this.doors.values()) {
+        if (d.model !== model || !d.box) continue;
+        d.box.getCenter(c);
+        const dist = Math.hypot(local.x - c.x, local.z - c.z);
+        // oči ve výšce dveří (stejné podlaží): od spodku dveří po kousek nad nadpražím
+        const level = local.y > d.box.min.y && local.y < d.box.max.y + 0.6;
+        // dveře, se kterými uživatel pohnul ručně, automatika nechá, dokud neodejde
+        if (d.hold) { if (dist > AUTO_CLOSE || !level) d.hold = false; continue; }
+        if (!d.open && level && dist < AUTO_OPEN) this.toggleDoor({ model, id: d.id }, true);
+        else if (d.open && d.auto && (dist > AUTO_CLOSE || !level)) this.toggleDoor({ model, id: d.id }, true);
+      }
+    }
   }
 
   /** Vyjme trojúhelníky křídel ze sloučené geometrie modelu do vlastních objektů s pantem. */

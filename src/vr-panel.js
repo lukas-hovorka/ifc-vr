@@ -8,23 +8,26 @@ import { MOSES_RADII } from './moses.js';
 const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 
 const W = 1024;          // šířka canvasu v px
-const H = 1700;          // výška canvasu v px
+const H = 1960;          // výška canvasu v px
 const S = 2.6;           // zvětšení tokenů (px EBC → px canvasu)
 const WIDTH_M = 0.26;    // šířka panelu v metrech
 const FPS_W = 330;       // šířka ukazatele snímků za sekundu v px canvasu
+/** Rozměry karty (pro panel vybraného prvku): canvas W × H px, zvětšení tokenů S, šířka v metrech. */
+export const PANEL = { W, H, S, WIDTH_M, HEIGHT_M: (WIDTH_M * H) / W };
 
 export const HELP = [
   ['Levá páčka', 'chůze'],
   ['Pravá páčka dopředu', 'teleport, do stran otočení'],
   ['A / B', 'nahoru / dolů'],
   ['Pravá spoušť', 'vybrat prvek, tlačítko panelu'],
-  ['Spoušť znovu na dveře', 'otevřít / zavřít'],
+  ['Spoušť znovu na prvek', 'zrušit výběr (dveře: otevřít)'],
   ['Úchop (maketa)', 'posunout, oběma rukama zvětšit'],
   ['X / Y', 'skrýt panel / přepnout měřítko'],
 ];
 
 export class VRPanel {
-  constructor() {
+  /** fps: false = bez ukazatele snímků za sekundu (panel vybraného prvku) */
+  constructor({ fps = true } = {}) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = W;
     this.canvas.height = H;
@@ -40,6 +43,11 @@ export class VRPanel {
     this.mesh.name = 'vr-panel';
     this.mesh.renderOrder = 20;
     // snímky za sekundu: vlastní malý obrázek v záhlaví (překresluje se každou sekundu, celý panel ne)
+    if (fps) this.addFps(h);
+    this.init();
+  }
+
+  addFps(h) {
     this.fpsCanvas = document.createElement('canvas');
     this.fpsCanvas.width = FPS_W;
     this.fpsCanvas.height = Math.round(px('size.titlebar.height') * S);
@@ -55,9 +63,12 @@ export class VRPanel {
     this.fpsMesh.raycast = () => {};
     this.mesh.add(this.fpsMesh);
     this.setFps(0, 0);
+  }
+
+  init() {
     this.regions = [];
     this.hover = null;
-    this.state = { modelName: '', mode: 'full', info: null, page: 0, message: '', tab: 'info', models: [], mpage: 0 };
+    this.state = { modelName: '', mode: 'full', page: 0, message: '', tab: 'models', models: [], mpage: 0 };
     this.actions = {};
     /** Akce s modelem: (op 'vis' | 'col' | 'del', modelID) */
     this.onModel = null;
@@ -72,6 +83,7 @@ export class VRPanel {
 
   /** Snímky za sekundu v záhlaví; žlutě, když brýle nestíhají frekvenci displeje (rate). */
   setFps(fps, rate) {
+    if (!this.fpsCanvas) return;
     const c = this.fpsCanvas.getContext('2d');
     const w = this.fpsCanvas.width, h = this.fpsCanvas.height;
     c.clearRect(0, 0, w, h);
@@ -89,7 +101,6 @@ export class VRPanel {
 
   set(patch) {
     Object.assign(this.state, patch);
-    if ('info' in patch) { this.state.page = 0; if (patch.info) this.state.tab = 'info'; }
     this.draw();
   }
 
@@ -111,7 +122,7 @@ export class VRPanel {
     const pg = this.state.tab === 'models' ? 'mpage' : 'page';
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
-    if (r.key === 'tab-info' || r.key === 'tab-models' || r.key === 'tab-map') { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
+    if (r.key === 'tab-models' || r.key === 'tab-map') { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
     if (r.key.startsWith('lvl:')) { this.state.mapLevel = +r.key.slice(4); this.state.mapMsg = ''; this.draw(); return true; }
     if (r.key === 'map') {
       this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
@@ -120,6 +131,7 @@ export class VRPanel {
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
+    if (r.key === 'doors:0' || r.key === 'doors:1') { this.onAutoDoors?.(r.key === 'doors:1'); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -371,6 +383,12 @@ export class VRPanel {
       });
       y += bh + pad;
 
+      // dveře: ručně (spouští) / automaticky (u dveří se otevřou)
+      y += this.sectionLabel('Dveře', pad, y);
+      this.button('doors:0', 'Ručně', pad, y, half, { active: !st.autoDoors });
+      this.button('doors:1', 'Automaticky', pad + half + gap, y, half, { active: !!st.autoDoors });
+      y += bh + pad;
+
       // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)
       y += this.sectionLabel('Mojžíšův mód', pad, y);
       const quarter = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
@@ -379,10 +397,9 @@ export class VRPanel {
       });
       y += bh + pad;
     }
-    // záložky: vybraný prvek / modely / mapa
-    this.button('tab-info', 'Vybraný prvek', pad, y, third, { active: st.tab === 'info' });
-    this.button('tab-models', `Modely (${st.models.length})`, pad + third + gap, y, third, { active: st.tab === 'models' });
-    this.button('tab-map', 'Mapa', pad + 2 * (third + gap), y, third, { active: st.tab === 'map' });
+    // záložky: modely / mapa (vybraný prvek má vlastní panel vpravo)
+    this.button('tab-models', `Modely (${st.models.length})`, pad, y, half, { active: st.tab === 'models' });
+    this.button('tab-map', 'Mapa', pad + half + gap, y, half, { active: st.tab === 'map' });
     y += bh + gap * 1.5;
     const footerH = HELP.length * 17 * S + pad * 1.4;
     const infoBottom = H - footerH - pad;
@@ -392,57 +409,6 @@ export class VRPanel {
       this.drawModels(y, infoBottom, { pad, gap, inner, bh });
     } else if (st.tab === 'map') {
       this.drawMap(y, infoBottom, { pad, gap, inner, bh });
-    } else if (!st.info) {
-      c.font = font('typography.body', S);
-      c.fillStyle = t('color.text.secondary');
-      c.fillText(st.message || 'Namiřte pravým ovladačem na prvek a stiskněte spoušť.', pad, y + 4 * S, inner);
-    } else {
-      const inf = st.info;
-      c.font = font('typography.subtitle', S);
-      c.fillStyle = t('color.text.primary');
-      c.fillText(this.ellipsize(inf.name || inf.type, inner), pad, y);
-      y += lineH;
-      c.font = font('typography.small', S);
-      c.fillStyle = t('color.text.secondary');
-      const sub = [inf.type, inf.storey].filter(Boolean).join(' · ');
-      c.fillText(this.ellipsize(sub, inner), pad, y);
-      y += lineH * 1.1;
-
-      // řádky vlastností (stránkované)
-      const rows = [];
-      if (inf.model) rows.push(['Model', inf.model, false]);
-      if (inf.objectType) rows.push(['Typ objektu', inf.objectType, false]);
-      if (inf.globalId) rows.push(['GlobalId', inf.globalId, false]);
-      for (const s of inf.sets) {
-        rows.push([s.name, '', true]);
-        for (const [k, v] of s.props) rows.push([k, v, false]);
-      }
-      const rowH = px('size.table.row-height') * S * 0.85;
-      const navH = bh + gap;
-      const perPage = Math.max(1, Math.floor((infoBottom - y - navH) / rowH));
-      const pages = Math.max(1, Math.ceil(rows.length / perPage));
-      st.page = Math.min(st.page, pages - 1);
-      const slice = rows.slice(st.page * perPage, (st.page + 1) * perPage);
-      const colK = inner * 0.48;
-      for (const [k, v, head] of slice) {
-        c.strokeStyle = t('color.list.separator');
-        c.lineWidth = 1;
-        c.beginPath(); c.moveTo(pad, y + rowH); c.lineTo(pad + inner, y + rowH); c.stroke();
-        c.textBaseline = 'middle';
-        if (head) {
-          c.font = font('typography.table-header', S);
-          c.fillStyle = t('color.text.accent');
-          c.fillText(this.ellipsize(k, inner), pad, y + rowH / 2);
-        } else {
-          c.font = font('typography.table-cell', S);
-          c.fillStyle = t('color.text.secondary');
-          c.fillText(this.ellipsize(k, colK - gap), pad, y + rowH / 2);
-          c.fillStyle = t('color.text.primary');
-          c.fillText(this.ellipsize(v, inner - colK), pad + colK, y + rowH / 2);
-        }
-        y += rowH;
-      }
-      if (pages > 1) this.pager(infoBottom - bh, st.page, pages, { pad, gap, inner, bh });
     }
 
     // nápověda k ovládání

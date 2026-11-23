@@ -59,3 +59,14 @@ export function loadEdges() {
 export function saveEdges(on) {
   try { localStorage.setItem(EDGES_KEY, on ? '1' : '0'); } catch { /* bez úložiště */ }
 }
+
+const DOORS_KEY = 'ifcvr.autodoors';
+
+/** Automatické otevírání dveří (zapamatovaná volba, výchozí vypnuto). */
+export function loadAutoDoors() {
+  try { return localStorage.getItem(DOORS_KEY) === '1'; } catch { return false; }
+}
+
+export function saveAutoDoors(on) {
+  try { localStorage.setItem(DOORS_KEY, on ? '1' : '0'); } catch { /* bez úložiště */ }
+}

@@ -1,5 +1,5 @@
 import { Viewer } from './viewer.js';
-import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges } from './quality.js';
+import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges, loadAutoDoors, saveAutoDoors } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
@@ -119,10 +119,12 @@ let modelName = '';
 let loading = false;
 
 const xr = new XRControls(viewer, {
-  // spoušť znovu na vybrané dveře: otevřít / zavřít
+  // spoušť znovu na vybraný prvek: zrušit výběr, u dveří otevřít / zavřít; mimo model výběr zůstane
+  // (uvnitř budovy se mimo model mířit nedá, zrušit jde spouští na prvek nebo tlačítkem na kartě)
   onSelect: (id) => {
     const cur = viewer.selectedId;
-    if (id && cur && id.model === cur.model && id.id === cur.id && viewer.isDoor(id)) toggleDoor(id);
+    if (!id) return;
+    if (cur && id.model === cur.model && id.id === cur.id) { if (viewer.isDoor(id)) toggleDoor(id); else select(null); }
     else select(id);
   },
 });
@@ -569,14 +571,14 @@ async function select(ref) {
   if (ref == null) {
     ui.info.innerHTML = '<p class="ebc-small ebc-caption">Klikněte na prvek v modelu.</p>';
     ui.infoSummary.textContent = '';
-    xr.panel.set({ info: null });
+    xr.info.set({ info: null, door: null });
     return;
   }
   let info;
   try { info = await call('props', { modelID: ref.model, expressID: ref.id }); } catch (e) { console.warn(e); return; }
   if (my !== selectSeq || !info) return;
   if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
-  xr.panel.set({ info });
+  xr.info.set({ info, door: doorState(ref) });
   renderInfo(info);
   renderDoor(ref);
 }
@@ -587,8 +589,17 @@ function toggleDoor(ref) {
   if (viewer.selectedId && ref.model === viewer.selectedId.model && ref.id === viewer.selectedId.id) renderDoor(ref);
 }
 
+// dveře otevřené automaticky: tlačítko u vybraného prvku podle stavu
+viewer.onDoorToggle = (ref) => {
+  if (viewer.selectedId && ref.model === viewer.selectedId.model && ref.id === viewer.selectedId.id) renderDoor(ref);
+};
+const doorState = (ref) => (viewer.isDoor(ref) ? (viewer.isDoorOpen(ref) ? 'open' : 'closed') : null);
+xr.info.onDeselect = () => select(null);
+xr.info.onDoor = () => { if (viewer.selectedId) toggleDoor(viewer.selectedId); };
+
 /** Tlačítko Otevřít / Zavřít dveře v panelu vybraného prvku. */
 function renderDoor(ref) {
+  if (xr.info.state.info) xr.info.set({ door: doorState(ref) });
   ui.info.querySelector('.info__door')?.remove();
   if (!viewer.isDoor(ref)) return;
   const row = document.createElement('div');
@@ -878,6 +889,26 @@ for (const [on, label, title] of [[false, 'Vyp.', 'Bez obrysových hran'], [true
 }
 xr.panel.onEdges = () => setEdges(!viewer.edgesOn);
 setEdges(loadEdges());
+
+// ---------- automatické dveře ----------
+function setAutoDoors(on) {
+  viewer.setAutoDoors(on);
+  saveAutoDoors(on);
+  for (const b of $('autodoors').querySelectorAll('[data-on]')) b.setAttribute('aria-pressed', String((b.dataset.on === '1') === on));
+  xr.panel.set({ autoDoors: on });
+}
+for (const [on, label, title] of [[false, 'Ručně', 'Dveře se otevírají spouští nebo dvojklikem'], [true, 'Automaticky', 'Dveře se otevřou, když k nim přijdete na 1 m']]) {
+  const b = document.createElement('button');
+  b.className = 'ebc-filter';
+  b.type = 'button';
+  b.dataset.on = on ? '1' : '0';
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', () => setAutoDoors(on));
+  $('autodoors').appendChild(b);
+}
+xr.panel.onAutoDoors = (on) => setAutoDoors(on);
+setAutoDoors(loadAutoDoors());
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };
