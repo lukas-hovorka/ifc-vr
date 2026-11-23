@@ -14,6 +14,13 @@ const SNAP = THREE.MathUtils.degToRad(30);
 const ARC_SPEED = 9;         // počáteční rychlost paraboly teleportu m/s
 const MAKETA_SIZE = 1.0;     // největší rozměr makety v m
 const TABLE_HEIGHT = 0.8;    // výška spodku makety nad podlahou
+/** Kolize: poloměr těla (m) a výšky nad nohama, ve kterých se hlídá zeď (koleno nad schodem, hrudník). */
+const BODY_RADIUS = 0.25;
+const BODY_HEIGHTS = [0.55, 1.2];
+/** Gravitace: nejvyšší schod, na který se vystoupá (m), rychlost výstupu (m/s), zrychlení pádu (m/s²). */
+const STEP_UP = 0.45;
+const STEP_SPEED = 2.5;
+const GRAVITY = 9.81;
 const HUD_SIDE = 0.03;       // karta začíná tolik vpravo od levého ovladače (m)
 const HUD_LIFT = 0.03;       // …a tolik nad ním
 const HUD_GAP = 0.015;       // mezera mezi hlavní kartou a kartou vybraného prvku
@@ -34,6 +41,12 @@ export class XRControls {
     this.tmp = { v: new THREE.Vector3(), v2: new THREE.Vector3(), q: new THREE.Quaternion(), m: new THREE.Matrix4() };
     this.raycaster = new THREE.Raycaster();
     this.raycaster.firstHitOnly = true;
+    // kolize se zdmi a gravitace (volby na panelu)
+    this.collide = false;
+    this.gravity = false;
+    this.fallSpeed = 0;
+    this.bodyRay = new THREE.Raycaster();
+    this.bodyRay.firstHitOnly = true;
 
     const r = viewer.renderer;
     const factory = new XRControllerModelFactory();
@@ -286,6 +299,71 @@ export class XRControls {
   }
 
   // ---------- pohyb ----------
+  /** První zásah paprsku do viditelného modelu (bez výřezu Mojžíšova módu), nebo null. */
+  bodyHit(origin, dir, far, withGround = false) {
+    const r = this.bodyRay;
+    r.set(origin, dir);
+    r.near = 0;
+    r.far = far;
+    const targets = withGround ? [...this.v.visibleMeshes, this.v.ground] : this.v.visibleMeshes;
+    return this.v.raycast(r, targets)[0] || null;
+  }
+
+  /**
+   * Kolize se zdmi: pohyb (svět, vodorovný) se zastaví před zdí, podél zdi se dá klouzat.
+   * Hlídá se v úrovni kolen (nad schodem) a hrudníku; teleport kolize nehlídá.
+   */
+  collideMove(move) {
+    const v = this.v;
+    const head = v.camera.getWorldPosition(new THREE.Vector3());
+    const feet = v.rig.position.y;
+    for (let pass = 0; pass < 2; pass++) {
+      const len = move.length();
+      if (len < 1e-6) return;
+      const dir = move.clone().divideScalar(len);
+      let hit = null;
+      for (const hgt of BODY_HEIGHTS) {
+        const h = this.bodyHit(new THREE.Vector3(head.x, feet + hgt, head.z), dir, len + BODY_RADIUS);
+        if (h && (!hit || h.distance < hit.distance)) hit = h;
+      }
+      if (!hit?.face) return;
+      // klouzání: odečíst složku pohybu proti zdi (normála ve vodorovné rovině, otočená proti pohybu)
+      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      n.y = 0;
+      if (n.lengthSq() < 1e-6) { move.set(0, 0, 0); return; }
+      n.normalize();
+      if (n.dot(dir) > 0) n.negate();
+      // až ke zdi (bez poloměru těla); zbytek pohybu podél zdi (napoprvé, podruhé už jen ke zdi)
+      const go = Math.min(Math.max(0, hit.distance - BODY_RADIUS), len);
+      const rest = move.clone().multiplyScalar(1 - go / len);
+      rest.addScaledVector(n, -rest.dot(n));
+      move.copy(dir).multiplyScalar(go);
+      if (pass === 1) return;
+      move.add(rest);
+    }
+  }
+
+  /**
+   * Gravitace: pod hlavou se hledá podlaha. Do STEP_UP nad nohama se na ni vystoupá (schod, rampa),
+   * níž se padá se zrychlením (ze schodů, do otvoru). Mimo model drží podlaha 1NP (mřížka).
+   */
+  applyGravity(dt) {
+    const v = this.v, rig = v.rig;
+    const head = v.camera.getWorldPosition(new THREE.Vector3());
+    const feet = rig.position.y;
+    const hit = this.bodyHit(new THREE.Vector3(head.x, feet + STEP_UP, head.z), new THREE.Vector3(0, -1, 0), 200, true);
+    if (!hit) { this.fallSpeed = 0; return; }
+    const floor = hit.point.y;
+    if (floor > feet + 0.005) {
+      rig.position.y = Math.min(floor, feet + STEP_SPEED * dt);
+      this.fallSpeed = 0;
+    } else if (floor < feet - 0.005) {
+      this.fallSpeed += GRAVITY * dt;
+      rig.position.y = Math.max(floor, feet - this.fallSpeed * dt);
+      if (rig.position.y === floor) this.fallSpeed = 0;
+    } else this.fallSpeed = 0;
+  }
+
   turn(angle) {
     const rig = this.v.rig;
     const pivot = this.v.camera.getWorldPosition(new THREE.Vector3());
@@ -407,7 +485,9 @@ export class XRControls {
       if (Math.hypot(x, y) > 0.15) {
         const fwd = v.camera.getWorldDirection(this.tmp.v); fwd.y = 0; fwd.normalize();
         const right = this.tmp.v2.crossVectors(fwd, UP).normalize();
-        v.rig.position.addScaledVector(fwd, -y * MOVE_SPEED * dt).addScaledVector(right, x * MOVE_SPEED * dt);
+        const move = new THREE.Vector3().addScaledVector(fwd, -y * MOVE_SPEED * dt).addScaledVector(right, x * MOVE_SPEED * dt);
+        if (this.collide && this.mode === 'full') this.collideMove(move);
+        v.rig.position.add(move);
       }
       if (this.pressedEdge('left', lgp, 4)) this.hud.visible = !this.hud.visible;
       if (this.pressedEdge('left', lgp, 5)) this.setMode(this.mode === 'full' ? 'mini' : 'full');
@@ -428,13 +508,17 @@ export class XRControls {
         if (!this.turnLatched && Math.abs(x) > 0.7) { this.turn(x > 0 ? -SNAP : SNAP); this.turnLatched = true; }
         if (Math.abs(x) < 0.3) this.turnLatched = false;
       }
-      if (rgp.buttons[4]?.pressed) v.rig.position.y += FLY_SPEED * dt;
-      if (rgp.buttons[5]?.pressed) v.rig.position.y -= FLY_SPEED * dt;
+      // nahoru / dolů jen bez gravitace (s ní se chodí po schodech)
+      if (!this.gravity || this.mode !== 'full') {
+        if (rgp.buttons[4]?.pressed) v.rig.position.y += FLY_SPEED * dt;
+        if (rgp.buttons[5]?.pressed) v.rig.position.y -= FLY_SPEED * dt;
+      }
     } else {
       this.arc.visible = this.marker.visible = false;
     }
 
     this.updateTwoHand();
+    if (this.gravity && this.mode === 'full' && !this.needsInitialPose) this.applyGravity(dt);
 
     // paprsek pravé ruky: panel má přednost před modelem
     if (R && !this.teleporting) {

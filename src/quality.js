@@ -60,6 +60,15 @@ export function saveEdges(on) {
   try { localStorage.setItem(EDGES_KEY, on ? '1' : '0'); } catch { /* bez úložiště */ }
 }
 
+/** Zapamatovaná volba zapnuto / vypnuto (výchozí vypnuto), např. 'collide', 'gravity'. */
+export function loadFlag(name) {
+  try { return localStorage.getItem(`ifcvr.${name}`) === '1'; } catch { return false; }
+}
+
+export function saveFlag(name, on) {
+  try { localStorage.setItem(`ifcvr.${name}`, on ? '1' : '0'); } catch { /* bez úložiště */ }
+}
+
 const DOORS_KEY = 'ifcvr.autodoors';
 
 /** Automatické otevírání dveří (zapamatovaná volba, výchozí vypnuto). */

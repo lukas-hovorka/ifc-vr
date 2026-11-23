@@ -32,8 +32,10 @@
       </label>
 
       <section class="side__section side__progress" id="progress-sec" hidden aria-live="polite">
-        <div class="side__progress-head"><span class="side__progress-name" id="progress-name"></span><span class="ebc-small side__count" id="progress-count"></span></div>
+        <div class="side__progress-head"><span class="side__progress-name" id="progress-name"></span><span class="ebc-small side__count" id="progress-count"></span>
+          <button class="ebc-icon-btn model-file__remove" type="button" id="progress-cancel" title="Zrušit načítání" aria-label="Zrušit načítání"><svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-window-close"/></svg></button></div>
         <p class="ebc-small side__progress-phase" id="progress-phase"></p>
+        <ul class="ebc-filelist side__queue" id="progress-queue" hidden></ul>
       </section>
 
       <section class="side__section" id="loaded-sec" hidden>

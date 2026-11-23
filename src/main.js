@@ -1,37 +1,56 @@
 import { Viewer } from './viewer.js';
-import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges, loadAutoDoors, saveAutoDoors } from './quality.js';
+import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges, loadAutoDoors, saveAutoDoors, loadFlag, saveFlag } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
 import { PlanMap, drawUser } from './map.js';
 import { MOSES_RADII } from './moses.js';
 
-// ---------- worker ----------
-const worker = new Worker(new URL('./ifc-worker.js', import.meta.url), { type: 'module' });
-let seq = 0;
-const pending = new Map();
+// ---------- workery ----------
+// Každý model má vlastní worker (načtení i vlastnosti prvků): rozpracované načítání jde zrušit ukončením
+// workeru a odebrání modelu uvolní celou jeho paměť. Zvláštní worker obsluhuje jen mezipaměť.
 let onProgress = null;
-worker.onmessage = (e) => {
-  const d = e.data;
-  if (d.type === 'progress') { onProgress?.(d); return; }
-  const p = pending.get(d.id);
-  if (!p) return;
-  pending.delete(d.id);
-  if (d.error) p.reject(new Error(d.error)); else p.resolve(d.result);
-};
-// pád workeru (např. málo paměti v brýlích): rozpracované požadavky skončí chybou, ne čekáním navždy
-const failAll = (msg) => {
-  for (const p of pending.values()) p.reject(new Error(msg));
-  pending.clear();
-};
-worker.onerror = (e) => { e.preventDefault?.(); failAll(`Zpracování selhalo${e.message ? ` (${e.message})` : ''}. Model může být na zařízení příliš velký.`); };
-worker.onmessageerror = () => failAll('Výsledek zpracování nejde přenést.');
-const call = (type, payload = {}, transfer = []) => new Promise((resolve, reject) => {
-  const id = ++seq;
-  pending.set(id, { resolve, reject });
-  worker.postMessage({ id, type, payload }, transfer);
-});
-const ready = call('init', { wasmPath: new URL('wasm/', document.baseURI).href });
+const WASM_PATH = new URL('wasm/', document.baseURI).href;
+/** Chyba ukončeného workeru (zrušené načítání), ne skutečné selhání. */
+const CANCELLED = 'Načítání zrušeno.';
+
+function spawnWorker() {
+  const worker = new Worker(new URL('./ifc-worker.js', import.meta.url), { type: 'module' });
+  let seq = 0;
+  const pending = new Map();
+  worker.onmessage = (e) => {
+    const d = e.data;
+    if (d.type === 'progress') { onProgress?.(d); return; }
+    const p = pending.get(d.id);
+    if (!p) return;
+    pending.delete(d.id);
+    if (d.error) p.reject(new Error(d.error)); else p.resolve(d.result);
+  };
+  // pád workeru (např. málo paměti v brýlích): rozpracované požadavky skončí chybou, ne čekáním navždy
+  const failAll = (msg) => {
+    for (const p of pending.values()) p.reject(new Error(msg));
+    pending.clear();
+  };
+  worker.onerror = (e) => { e.preventDefault?.(); failAll(`Zpracování selhalo${e.message ? ` (${e.message})` : ''}. Model může být na zařízení příliš velký.`); };
+  worker.onmessageerror = () => failAll('Výsledek zpracování nejde přenést.');
+  const send = (type, payload = {}, transfer = []) => new Promise((resolve, reject) => {
+    const id = ++seq;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, type, payload }, transfer);
+  });
+  const ready = send('init', { wasmPath: WASM_PATH });
+  return {
+    ready,
+    call: async (type, payload, transfer) => { await ready; return send(type, payload, transfer); },
+    terminate: (msg = CANCELLED) => { worker.terminate(); failAll(msg); },
+  };
+}
+const cacheWorker = spawnWorker();
+const call = cacheWorker.call;
+const ready = cacheWorker.ready;
+/** modelID → { worker, local (číslo modelu ve workeru) } */
+const modelWorkers = new Map();
+let nextModelID = 1;
 
 // ---------- UI ----------
 const $ = (id) => document.getElementById(id);
@@ -82,9 +101,9 @@ const isIntegrated = (name) => /Intel(?!.*\bArc\b)|Radeon\(TM\) Graphics|Radeon 
 }
 
 // mezipaměť zpracované geometrie (v prohlížeči): velikost a vymazání
-async function updateCacheInfo() {
+async function updateCacheInfo(w = cacheWorker) {
   let info;
-  try { info = await call('cacheInfo'); } catch { return; }
+  try { info = await w.call('cacheInfo'); } catch { return; }
   ui.cacheLine.hidden = !info.count;
   ui.cacheText.textContent = `Mezipaměť: ${plural(info.count, 'model', 'modely', 'modelů')}, ${fmtSize(info.bytes)} – `
     + 'další otevření stejného souboru je rychlé.';
@@ -194,6 +213,43 @@ const RANGES = {
 };
 const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
+
+/** Fronta pod průběhem: soubory, které čekají, každý jde zrušit. */
+function renderQueue() {
+  const list = $('progress-queue');
+  list.replaceChildren(...queue.map((job) => {
+    const li = document.createElement('li');
+    const n = document.createElement('span');
+    n.className = 'side__progress-name';
+    n.textContent = `Ve frontě: ${job.name}`;
+    const x = document.createElement('button');
+    x.className = 'ebc-icon-btn model-file__remove';
+    x.type = 'button';
+    x.title = `Nenačítat ${job.name}`;
+    x.setAttribute('aria-label', x.title);
+    x.innerHTML = '<svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-window-close"/></svg>';
+    x.addEventListener('click', () => cancelJob(job));
+    li.append(n, x);
+    return li;
+  }));
+  list.hidden = !queue.length;
+}
+
+/** Zruší načítání souboru: právě načítaný se zastaví, čekající se vyřadí z fronty. */
+function cancelJob(job) {
+  if (job === activeJob) {
+    job.cancelled = true;
+    job.abort?.();
+    return;
+  }
+  const i = queue.indexOf(job);
+  if (i < 0) return;
+  queue.splice(i, 1);
+  batch.total--;
+  renderQueue();
+  setStatus(`${job.name} se nenačte.`);
+}
+$('progress-cancel').addEventListener('click', () => { if (activeJob) cancelJob(activeJob); });
 
 function showProgress(phase, value = 0) {
   const [a, b] = RANGES[batch.kind][phase] || [0, 1];
@@ -359,7 +415,7 @@ async function removeModel(modelID) {
   const [m] = loaded.splice(i, 1);
   if (viewer.selectedId?.model === modelID) select(null);
   viewer.removeModel(modelID);
-  try { await call('close', { modelID }); } catch (e) { console.warn(e); }
+  closeModel(modelID);
   if (!loaded.length) { viewer.clear(); dropState(''); }
   setStatus(`Model ${m.name} je odebraný.`);
   updateLoaded();
@@ -375,20 +431,35 @@ async function removeAll() {
   dropState('');
   setStatus('Všechny modely jsou odebrané.');
   updateLoaded();
-  for (const m of all) { try { await call('close', { modelID: m.modelID }); } catch (e) { console.warn(e); } }
+  for (const m of all) closeModel(m.modelID);
+}
+
+/** Ukončí worker modelu (uvolní IFC i paměť WASM). */
+function closeModel(modelID) {
+  modelWorkers.get(modelID)?.worker.terminate('Model je odebraný.');
+  modelWorkers.delete(modelID);
 }
 $('remove-all').addEventListener('click', (e) => { e.preventDefault(); removeAll(); });
 
 /** key = totožnost souboru pro mezipaměť geometrie (název, velikost, datum změny) */
-async function loadBuffer(buffer, name, key = '') {
+async function loadBuffer(buffer, name, key = '', job = null) {
   modelName = name;
   const t0 = performance.now();
   loading = true;
   ui.btnVR.disabled = ui.btnAR.disabled = true;
+  const w = spawnWorker();
+  let registered = false;
+  if (job) job.abort = () => w.terminate();
   try {
-    await ready;
+    if (job?.cancelled) throw new Error(CANCELLED);
     const size = buffer.byteLength;
-    const res = await call('load', { buffer, key, name }, [buffer]);
+    const res = await w.call('load', { buffer, key, name }, [buffer]);
+    if (job?.cancelled) throw new Error(CANCELLED);
+    if (job) job.abort = null;
+    const modelID = nextModelID++;
+    modelWorkers.set(modelID, { worker: w, local: res.modelID });
+    registered = true;
+    res.modelID = modelID;
     res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys, res.edges, res.ao);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
@@ -399,9 +470,15 @@ async function loadBuffer(buffer, name, key = '') {
     setStatus(`Načteno${res.cached ? ' z mezipaměti' : ''}: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
       + (warn ? ` ${warn}` : ''), warn ? '' : 'success');
     dropState('loaded');
-    updateCacheInfo();
+    updateCacheInfo(w);
     return true;
   } catch (err) {
+    if (!registered) w.terminate();
+    if (job?.cancelled || err.message === CANCELLED) {
+      dropState(loaded.length ? 'loaded' : '');
+      setStatus(`Načítání ${name} je zrušené.`);
+      return 'cancelled';
+    }
     console.error(err);
     dropState('error');
     lastError = err.message;
@@ -414,7 +491,7 @@ async function loadBuffer(buffer, name, key = '') {
   }
 }
 
-async function readFile(file) {
+async function readFile(file, job = null) {
   if (!file.name.toLowerCase().endsWith('.ifc')) {
     dropState('error');
     setStatus(`Soubor ${file.name} není IFC. Vyberte soubor s příponou .ifc.`, 'error');
@@ -430,19 +507,22 @@ async function readFile(file) {
   showProgress('read', 0);
   let buffer;
   try {
-    buffer = await readWithProgress(file, (v) => showProgress('read', v));
+    buffer = await readWithProgress(file, (v) => showProgress('read', v), job);
   } catch (err) {
+    if (job?.cancelled) { setStatus(`Načítání ${file.name} je zrušené.`); dropState(loaded.length ? 'loaded' : ''); return 'cancelled'; }
     dropState('error');
     setStatus(`Soubor ${file.name} nejde přečíst: ${err.message}`, 'error');
     return false;
   }
-  return loadBuffer(buffer, file.name, `soubor|${file.name}|${file.size}|${file.lastModified}`);
+  return loadBuffer(buffer, file.name, `soubor|${file.name}|${file.size}|${file.lastModified}`, job);
 }
 
 /** Přečte soubor z disku s průběhem (velké soubory v brýlích chvíli trvají). */
-function readWithProgress(file, onValue) {
+function readWithProgress(file, onValue, job = null) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
+    if (job) job.abort = () => r.abort();
+    r.onabort = () => reject(new Error(CANCELLED));
     r.onprogress = (e) => { if (e.lengthComputable) onValue(e.loaded / e.total); };
     r.onload = () => resolve(r.result);
     r.onerror = () => reject(r.error || new Error('čtení selhalo.'));
@@ -450,13 +530,15 @@ function readWithProgress(file, onValue) {
   });
 }
 
-async function readUrl(url, name) {
+async function readUrl(url, name, job = null) {
   if (isLoaded(name)) { setStatus(`Model ${name} už je načtený.`); return true; }
   modelName = name;
   batch.kind = 'url';
   showProgress('download', 0);
+  const ctrl = new AbortController();
+  if (job) job.abort = () => ctrl.abort();
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) throw new Error(`server vrátil ${res.status}.`);
     const total = +res.headers.get('Content-Length') || 0;
     const reader = res.body.getReader();
@@ -474,8 +556,9 @@ async function readUrl(url, name) {
     let o = 0;
     for (const c of chunks) { buf.set(c, o); o += c.length; }
     const stamp = res.headers.get('Last-Modified') || res.headers.get('ETag') || '';
-    return loadBuffer(buf.buffer, name, `url|${new URL(url, location.href).href}|${got}|${stamp}`);
+    return loadBuffer(buf.buffer, name, `url|${new URL(url, location.href).href}|${got}|${stamp}`, job);
   } catch (err) {
+    if (job?.cancelled) { setStatus(`Načítání ${name} je zrušené.`); dropState(loaded.length ? 'loaded' : ''); return 'cancelled'; }
     dropState('error');
     setStatus(`Model ${name} nejde stáhnout: ${err.message}`, 'error');
     return false;
@@ -484,22 +567,29 @@ async function readUrl(url, name) {
 
 /** Soubory se načítají postupně za sebou; chyba jednoho nezastaví ostatní. */
 let running = false;
+/** soubor, který se právě načítá ({ name, run, cancelled, abort }) */
+let activeJob = null;
 let lastError = ''; // poslední chyba zpracování, do souhrnu dávky
 async function enqueue(jobs) {
   queue.push(...jobs);
   batch.total += jobs.length;
+  renderQueue();
   if (running) return;
   running = true;
-  let ok = 0;
+  let ok = 0, cancelled = 0;
   const failed = [];
   notes.length = 0;
   lastError = '';
   try {
     while (queue.length) {
-      const { name, run } = queue.shift();
+      const job = queue.shift();
+      activeJob = job;
+      renderQueue();
       let res = false;
-      try { res = await run(); } catch (err) { console.error(err); dropState('error'); }
-      if (res) ok++; else failed.push(name);
+      try { res = await job.run(job); } catch (err) { console.error(err); dropState('error'); }
+      activeJob = null;
+      if (res === 'cancelled') cancelled++;
+      else if (res) ok++; else failed.push(job.name);
       batch.done++;
     }
   } finally {
@@ -509,7 +599,8 @@ async function enqueue(jobs) {
     hideProgress();
   }
   const fail = failed.length;
-  if (ok + fail > 1) {
+  renderQueue();
+  if (ok + fail + cancelled > 1 && ok + fail > 0) {
     const list = failed.slice(0, 5).join(', ') + (fail > 5 ? ` a ${fail - 5} další` : '');
     setStatus(fail
       ? `Načteno ${plural(ok, 'soubor', 'soubory', 'souborů')}, ${plural(fail, 'soubor', 'soubory', 'souborů')} nejde načíst: ${list}.`
@@ -518,8 +609,8 @@ async function enqueue(jobs) {
         + (notes.length ? ` ${notes.join(' ')}` : ''), fail ? 'error' : notes.length ? '' : 'success');
   }
 }
-const loadFiles = (files) => enqueue([...files].map((f) => ({ name: f.name, run: () => readFile(f) })));
-const loadUrl = (url, name) => enqueue([{ name, run: () => readUrl(url, name) }]);
+const loadFiles = (files) => enqueue([...files].map((f) => ({ name: f.name, run: (job) => readFile(f, job) })));
+const loadUrl = (url, name) => enqueue([{ name, run: (job) => readUrl(url, name, job) }]);
 
 ui.file.addEventListener('change', () => { loadFiles(ui.file.files); ui.file.value = ''; });
 ui.drop.addEventListener('dragover', (e) => { e.preventDefault(); ui.drop.classList.add('is-dragover'); ui.dropTitle.textContent = 'Vložte soubory'; });
@@ -575,7 +666,9 @@ async function select(ref) {
     return;
   }
   let info;
-  try { info = await call('props', { modelID: ref.model, expressID: ref.id }); } catch (e) { console.warn(e); return; }
+  const mw = modelWorkers.get(ref.model);
+  if (!mw) return;
+  try { info = await mw.worker.call('props', { modelID: mw.local, expressID: ref.id }); } catch (e) { console.warn(e); return; }
   if (my !== selectSeq || !info) return;
   if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
   xr.info.set({ info, door: doorState(ref) });
@@ -909,6 +1002,16 @@ for (const [on, label, title] of [[false, 'Ručně', 'Dveře se otevírají spou
 }
 xr.panel.onAutoDoors = (on) => setAutoDoors(on);
 setAutoDoors(loadAutoDoors());
+
+// ---------- pohyb ve VR: kolize se zdmi, gravitace ----------
+function setMotion(name, on) {
+  xr[name] = on;
+  if (name === 'gravity') xr.fallSpeed = 0;
+  saveFlag(name, on);
+  xr.panel.set({ [name]: on });
+}
+xr.panel.onMotion = setMotion;
+for (const name of ['collide', 'gravity']) setMotion(name, loadFlag(name));
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };

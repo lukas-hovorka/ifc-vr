@@ -29,6 +29,8 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   působí plastičtěji). Počítá se jednou při načtení (u velkého modelu asi sekundu) a ukládá se do mezipaměti
 - **obrysové hrany** (volba *Obrysové hrany* na počítači, tlačítko **Hrany** ve VR; výchozí vypnuto): tmavé
   čáry na hranách prvků jako na výkrese, zdi a stropy stejné barvy se od sebe lépe odliší
+- **zrušení načítání**: u průběhu je křížek, který zastaví právě načítaný model, a čekající soubory ve frontě
+  jdou vyřadit každý zvlášť. Každý model má vlastní worker, odebrání modelu uvolní i jeho paměť
 - **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
@@ -97,13 +99,21 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | Levá páčka | chůze ve směru pohledu |
 | Pravá páčka dopředu | teleport (oranžová parabola, červená = nejde přistát), pustit = skok |
 | Pravá páčka do stran | otočení o 30° |
-| A / B | nahoru / dolů |
+| A / B | nahoru / dolů (jen bez gravitace) |
 | Pravá spoušť | vybrat prvek, stisknout tlačítko na panelu |
-| Pravá spoušť znovu na vybrané dveře | otevřít / zavřít |
+| Pravá spoušť znovu na vybraný prvek | zrušit výběr; u dveří otevřít / zavřít |
 | Pravá spoušť do půdorysu (záložka Mapa) | přesun na místo zvoleného podlaží |
 | Úchop (maketa) | jednou rukou posunout, oběma otočit a zvětšit |
 | X | skrýt / zobrazit panel |
 | Y | přepnout Skutečné 1:1 / Maketa |
+
+Řádek **Pohyb** na panelu (volby se pamatují, výchozí vypnuto):
+
+- **Kolize** – chůze páčkou se zastaví před zdí (25 cm), podél zdi se klouže. Hlídá se v úrovni kolen
+  (nad schodem) a hrudníku; teleport a fyzická chůze po místnosti kolize nehlídají.
+- **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
+  mimo budovu drží podlaha 1NP. A / B (nahoru / dolů) jsou s gravitací vypnuté.
+- **Aut. dveře** – stejné jako volba Dveře: Automaticky na počítači.
 
 ## Build na statický hosting
 

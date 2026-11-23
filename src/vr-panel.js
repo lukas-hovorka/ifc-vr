@@ -18,7 +18,7 @@ export const PANEL = { W, H, S, WIDTH_M, HEIGHT_M: (WIDTH_M * H) / W };
 export const HELP = [
   ['Levá páčka', 'chůze'],
   ['Pravá páčka dopředu', 'teleport, do stran otočení'],
-  ['A / B', 'nahoru / dolů'],
+  ['A / B', 'nahoru / dolů (bez gravitace)'],
   ['Pravá spoušť', 'vybrat prvek, tlačítko panelu'],
   ['Spoušť znovu na prvek', 'zrušit výběr (dveře: otevřít)'],
   ['Úchop (maketa)', 'posunout, oběma rukama zvětšit'],
@@ -131,7 +131,8 @@ export class VRPanel {
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
-    if (r.key === 'doors:0' || r.key === 'doors:1') { this.onAutoDoors?.(r.key === 'doors:1'); return true; }
+    if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
+    if (r.key === 'collide' || r.key === 'gravity') { this.onMotion?.(r.key, !this.state[r.key]); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -383,10 +384,11 @@ export class VRPanel {
       });
       y += bh + pad;
 
-      // dveře: ručně (spouští) / automaticky (u dveří se otevřou)
-      y += this.sectionLabel('Dveře', pad, y);
-      this.button('doors:0', 'Ručně', pad, y, half, { active: !st.autoDoors });
-      this.button('doors:1', 'Automaticky', pad + half + gap, y, half, { active: !!st.autoDoors });
+      // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře – přepínače
+      y += this.sectionLabel('Pohyb', pad, y);
+      this.button('collide', 'Kolize', pad, y, third, { active: !!st.collide });
+      this.button('gravity', 'Gravitace', pad + third + gap, y, third, { active: !!st.gravity });
+      this.button('doors', 'Aut. dveře', pad + 2 * (third + gap), y, third, { active: !!st.autoDoors });
       y += bh + pad;
 
       // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)

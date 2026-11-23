@@ -73,6 +73,10 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .side__progress-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side__progress-phase { margin: 0; color: var(--ebc-color-text-secondary); }
 .side__progress { gap: var(--ebc-space-2); }
+.side__progress-head { align-items: center; }
+.side__queue { margin: 0; }
+.side__queue li { display: flex; align-items: center; gap: var(--ebc-space-8); color: var(--ebc-color-text-secondary); }
+.side__queue .side__progress-name { font-size: var(--ebc-font-size-sm); }
 .side__drop .ebc-dropzone__progress { transition: width .15s; }
 
 /* načtené modely: zapnout/vypnout, barva, odebrat */
