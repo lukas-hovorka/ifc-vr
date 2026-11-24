@@ -16,9 +16,11 @@ const NEED = { laser: 1, dist: 2, point: 1, angle: 3 };
 /** Velikost na obrazovce (podíl vzdálenosti od kamery): výška jednořádkového štítku ~1,4°, poloměr bodu ~0,26°. */
 const LABEL_K = 0.025;
 const DOT_K = 0.0045;
-/** Přichycení k rohu prvku: do tolika (podíl vzdálenosti), nejméně 1,5 cm. */
+/** Přichycení k rohu a hraně prvku: do tolika (podíl vzdálenosti), nejméně 1,5 cm. */
 const SNAP_K = 0.03;
 const SNAP_MIN = 0.015;
+/** Mřížka pro hledání hran poblíž bodu: velikost buňky (m, v souřadnicích modelu). */
+const EDGE_CELL = 0.5;
 
 const nf = (n, d) => n.toLocaleString('cs-CZ', { minimumFractionDigits: d, maximumFractionDigits: d });
 export const fmtLen = (m) => `${nf(m, 3)} m`;
@@ -47,6 +49,7 @@ export class Measure {
     this.hoverLineMat = new THREE.LineBasicMaterial({ color: accent, depthTest: false, transparent: true, opacity: 0.6 });
     this.dotMat = new THREE.MeshBasicMaterial({ color: accent, depthTest: false, transparent: true });
     this.snapMat = new THREE.MeshBasicMaterial({ color: t('color.status.success'), depthTest: false, transparent: true });
+    this.snapLineMat = new THREE.LineBasicMaterial({ color: t('color.status.success'), depthTest: false, transparent: true });
     this.dotGeo = new THREE.SphereGeometry(1, 12, 8);
     /** objekty, které drží stálou velikost na obrazovce: { obj, k, aspect } */
     this.scaled = new Set();
@@ -71,13 +74,16 @@ export class Measure {
 
   // ---------- výběr bodu ----------
   /**
-   * Bod pod paprskem (zásah z viewer.intersect, ve světě): přichytí se k nejbližšímu rohu zasaženého
-   * trojúhelníku, je-li blízko. Vrátí { local (modelRoot), world, snapped }.
+   * Bod pod paprskem (zásah z viewer.intersect, ve světě). S přichycením: nejdřív roh (vrchol zasaženého
+   * trojúhelníku nebo konec hrany prvku), pak nejbližší bod na hraně prvku (obrysové hrany modelu – jen
+   * skutečné hrany, ne úhlopříčky trojúhelníků), jinak bod na ploše.
+   * Vrátí { local (modelRoot), world, snapped: '' | 'corner' | 'edge', edge: [a, b] (modelRoot) | null }.
    */
   pick(hit) {
     if (!hit) return null;
     const world = hit.point.clone();
-    let snapped = false;
+    let snapped = '';
+    let edge = null;
     if (this.snap && hit.face && hit.object?.geometry) {
       const pos = hit.object.geometry.attributes.position;
       const r = Math.max(SNAP_MIN * this.worldScale(), hit.distance * SNAP_K);
@@ -85,12 +91,59 @@ export class Measure {
       for (const i of [hit.face.a, hit.face.b, hit.face.c]) {
         const c = this.tmp.fromBufferAttribute(pos, i).applyMatrix4(hit.object.matrixWorld);
         const d = c.distanceTo(hit.point);
-        if (d < best) { best = d; world.copy(c); snapped = true; }
+        if (d < best) { best = d; world.copy(c); snapped = 'corner'; }
+      }
+      const e = this.nearEdge(hit, r);
+      if (e) {
+        // konec hrany je roh; bod na hraně jen tam, kde poblíž není roh
+        if (e.endDist < best) { best = e.endDist; world.copy(e.end); snapped = 'corner'; }
+        if (!snapped && e.dist < r) { world.copy(e.point); snapped = 'edge'; edge = [e.a, e.b]; }
       }
     }
     this.v.modelRoot.updateMatrixWorld();
-    const local = this.v.modelRoot.worldToLocal(world.clone());
-    return { local, world, snapped };
+    const toLocal = (p) => this.v.modelRoot.worldToLocal(p.clone());
+    return { local: toLocal(world), world, snapped, edge: edge && edge.map(toLocal) };
+  }
+
+  /**
+   * Nejbližší obrysová hrana modelu zasaženého prvku do vzdálenosti r (svět): bod na ní, její nejbližší konec
+   * a vzdálenosti (vše ve světě), nebo null. Hrany se hledají v mřížce, která se postaví při prvním použití.
+   */
+  nearEdge(hit, r) {
+    const lines = this.v.edgeLines.get(hit.object.userData.modelID);
+    if (!lines) return null;
+    const P = lines.geometry.attributes.position.array;
+    const grid = lines.userData.snapGrid || (lines.userData.snapGrid = buildEdgeGrid(P));
+    lines.updateMatrixWorld();
+    const inv = new THREE.Matrix4().copy(lines.matrixWorld).invert();
+    const p = hit.point.clone().applyMatrix4(inv);
+    const s = new THREE.Vector3().setFromMatrixScale(lines.matrixWorld).x;
+    const rl = r / s;
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), q = new THREE.Vector3(), seg = new THREE.Line3();
+    let best = null;
+    const seen = new Set();
+    const x0 = Math.floor((p.x - rl) / EDGE_CELL), x1 = Math.floor((p.x + rl) / EDGE_CELL);
+    const y0 = Math.floor((p.y - rl) / EDGE_CELL), y1 = Math.floor((p.y + rl) / EDGE_CELL);
+    const z0 = Math.floor((p.z - rl) / EDGE_CELL), z1 = Math.floor((p.z + rl) / EDGE_CELL);
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
+      const list = grid.get(`${x},${y},${z}`);
+      if (!list) continue;
+      for (const i of list) {
+        if (seen.has(i)) continue;
+        seen.add(i);
+        a.fromArray(P, i * 6);
+        b.fromArray(P, i * 6 + 3);
+        seg.set(a, b).closestPointToPoint(p, true, q);
+        const d = q.distanceTo(p);
+        if (d < rl && (!best || d < best.d)) {
+          const da = a.distanceTo(p), db = b.distanceTo(p);
+          best = { d, q: q.clone(), a: a.clone(), b: b.clone(), end: (da < db ? a : b).clone(), endD: Math.min(da, db) };
+        }
+      }
+    }
+    if (!best) return null;
+    const w = (v) => v.applyMatrix4(lines.matrixWorld);
+    return { point: w(best.q), dist: best.d * s, end: w(best.end), endDist: best.endD * s, a: w(best.a), b: w(best.b) };
   }
 
   worldScale() { return this.v.modelRoot.scale.x; }
@@ -134,6 +187,7 @@ export class Measure {
     if (!this.active || !pick) { this.v.invalidate(); return; }
     const g = this.hoverGroup;
     this.dot(g, pick.local, pick.snapped ? this.snapMat : this.dotMat);
+    if (pick.edge) this.line(g, pick.edge, this.snapLineMat);
     const pts = [...this.pending, pick.local];
     if (this.tool === 'laser' && origin) {
       this.v.modelRoot.updateMatrixWorld();
@@ -328,4 +382,29 @@ export class Measure {
   }
 
   changed() { this.onChange?.(); }
+}
+
+/**
+ * Mřížka hran (souřadnice modelu): buňka → čísla úseček, které jí procházejí. Dlouhá hrana se zapíše
+ * do všech buněk podél sebe (vzorkuje se po půl buňce).
+ */
+function buildEdgeGrid(P) {
+  const grid = new Map();
+  const n = P.length / 6;
+  for (let i = 0; i < n; i++) {
+    const o = i * 6;
+    const dx = P[o + 3] - P[o], dy = P[o + 4] - P[o + 1], dz = P[o + 5] - P[o + 2];
+    const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy, dz) / (EDGE_CELL * 0.5)));
+    let last = '';
+    for (let k = 0; k <= steps; k++) {
+      const f = k / steps;
+      const key = `${Math.floor((P[o] + dx * f) / EDGE_CELL)},${Math.floor((P[o + 1] + dy * f) / EDGE_CELL)},${Math.floor((P[o + 2] + dz * f) / EDGE_CELL)}`;
+      if (key === last) continue;
+      last = key;
+      let list = grid.get(key);
+      if (!list) grid.set(key, (list = []));
+      if (list[list.length - 1] !== i) list.push(i);
+    }
+  }
+  return grid;
 }

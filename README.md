@@ -42,7 +42,8 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   - *Bod*: souřadnice X, Y, Z v systému IFC (Z nahoru, skutečné souřadnice včetně posunu modelu, např. S-JTSK),
   - *Úhel*: ze tří bodů (bod na rameni, vrchol, bod na druhém rameni).
 
-  Body se přichytí k rohu prvku, když jste blízko (volba *Přichytit k rohům*, zeleně = přichyceno). V maketě se
+  Body se přichytí k rohu prvku, a není-li roh blízko, k hraně prvku (jen skutečné hrany, ne úhlopříčky ploch;
+  volba *Přichytit*, zeleně = přichyceno, přichycená hrana se zvýrazní). Dosah je 3 % vzdálenosti, nejméně 1,5 cm. V maketě se
   měří skutečné rozměry. Výsledky jsou u čar v modelu (štítky drží stálou velikost) a v seznamu; *Zpět* odebere
   poslední bod nebo měření, na počítači Esc zruší rozpracované body. Odebráním všech modelů se měření smažou.
 

@@ -218,7 +218,7 @@ export class VRPanel {
       this.button(`mt:${key}`, label, pad + i * (q4 + gap), y, q4, { active: st.mTool === key });
     });
     y += bh + gap;
-    this.button('msnap', 'Přichytit k rohům', pad, y, third, { active: !!st.mSnap });
+    this.button('msnap', 'Přichytit', pad, y, third, { active: !!st.mSnap });
     this.button('mundo', 'Zpět', pad + third + gap, y, third, { disabled: !st.mCanUndo });
     this.button('mclear', 'Smazat vše', pad + 2 * (third + gap), y, third, { disabled: !st.mItems?.length });
     y += bh + gap * 1.5;
