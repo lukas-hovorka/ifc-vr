@@ -126,7 +126,8 @@ Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Ma
   od výšky schodu po oči (zastaví asi 30 cm před nimi). Teleport a fyzická chůze po místnosti kolize nehlídají.
 - **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
   podlaha se hledá pod středem a 12 cm kolem, takže se nepropadne mezerou mezi stupni otevřeného schodiště.
-  Mimo budovu drží podlaha 1NP. A / B (nahoru / dolů) jsou s gravitací vypnuté.
+  Podlaha 1NP (mřížka) drží jen mimo budovu, kde pod vámi žádný model není; v budově se po schodech nebo
+  otvorem dostanete i do suterénu (platí i pro teleport). A / B (nahoru / dolů) jsou s gravitací vypnuté.
 - **Automatické dveře** – stejné jako volba Dveře: Automaticky na počítači.
 - **Plynulé otáčení** – pravá páčka do stran otáčí plynule (rychlost podle vychýlení), jinak po 30°.
 

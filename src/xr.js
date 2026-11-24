@@ -450,12 +450,18 @@ export class XRControls {
     const v = this.v, rig = v.rig;
     const head = v.camera.getWorldPosition(new THREE.Vector3());
     const feet = rig.position.y;
-    // nejvyšší podlaha pod chodidly (střed a čtyři body kolem): mezera mezi stupni neprovalí
+    // nejvyšší podlaha modelu pod chodidly (střed a čtyři body kolem): mezera mezi stupni neprovalí.
+    // Podlaha 1NP (mřížka) drží jen tam, kde pod nohama žádný model není (mimo budovu) – v budově se
+    // po schodech dá sejít do suterénu.
     const down = new THREE.Vector3(0, -1, 0);
     let floor = -Infinity;
     for (const [dx, dz] of [[0, 0], [FOOT, 0], [-FOOT, 0], [0, FOOT], [0, -FOOT]]) {
-      const hit = this.bodyHit(new THREE.Vector3(head.x + dx, feet + STEP_UP, head.z + dz), down, 200, true);
+      const hit = this.bodyHit(new THREE.Vector3(head.x + dx, feet + STEP_UP, head.z + dz), down, 200);
       if (hit) floor = Math.max(floor, hit.point.y);
+    }
+    if (floor === -Infinity) {
+      const hit = this.bodyHit(new THREE.Vector3(head.x, feet + STEP_UP, head.z), down, 200, true);
+      if (hit) floor = hit.point.y;
     }
     if (floor === -Infinity) { this.fallSpeed = 0; return; }
     if (floor > feet + 0.005) {
@@ -466,6 +472,11 @@ export class XRControls {
       rig.position.y = Math.max(floor, feet - this.fallSpeed * dt);
       if (rig.position.y === floor) this.fallSpeed = 0;
     } else this.fallSpeed = 0;
+  }
+
+  /** Je pod bodem (do 200 m) nějaká geometrie modelu? */
+  modelBelow(point) {
+    return !!this.bodyHit(point.clone().setY(point.y + 0.01), new THREE.Vector3(0, -1, 0), 200);
   }
 
   turn(angle) {
@@ -510,7 +521,11 @@ export class XRControls {
       const len = seg.length();
       this.raycaster.set(p, seg.normalize());
       this.raycaster.far = len;
-      const hits = this.v.raycast(this.raycaster, targets);
+      let hits = this.v.raycast(this.raycaster, targets);
+      // podlaha 1NP nad modelem (schodiště do suterénu, otvor) neplatí: parabola letí dál k modelu pod ní
+      if (hits.length && hits[0].object === this.v.ground && this.mode === 'full' && this.modelBelow(hits[0].point)) {
+        hits = this.v.raycast(this.raycaster, this.v.visibleMeshes);
+      }
       if (hits.length) {
         hit = hits[0];
         pos.setXYZ(n, hit.point.x, hit.point.y, hit.point.z);
