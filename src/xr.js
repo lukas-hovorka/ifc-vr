@@ -11,7 +11,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 const MOVE_SPEED = 2.0;      // m/s chůze
 const FLY_SPEED = 1.5;       // m/s nahoru/dolů
 const SNAP = THREE.MathUtils.degToRad(30);
-const TURN_SPEED = THREE.MathUtils.degToRad(100);   // plynulé otáčení: rad/s při plném vychýlení páčky
+const TURN_SPEED = THREE.MathUtils.degToRad(100);   // plynulé otáčení: výchozí rad/s při plném vychýlení páčky (volba na panelu)
 const ARC_SPEED = 9;         // počáteční rychlost paraboly teleportu m/s
 const MAKETA_SIZE = 1.0;     // největší rozměr makety v m
 const TABLE_HEIGHT = 0.8;    // výška spodku makety nad podlahou
@@ -58,6 +58,7 @@ export class XRControls {
     this.collide = false;
     this.gravity = false;
     this.smoothTurn = false;
+    this.turnSpeed = TURN_SPEED;
     this.fallSpeed = 0;
     this.bodyBox = new THREE.Box3();
     this.boxInv = new THREE.Matrix4();
@@ -646,7 +647,7 @@ export class XRControls {
       } else {
         if (this.smoothTurn) {
           // plynulé otáčení podle vychýlení páčky (mrtvá zóna kolem středu)
-          if (Math.abs(x) > 0.2) this.turn(-Math.sign(x) * (Math.abs(x) - 0.2) / 0.8 * TURN_SPEED * dt);
+          if (Math.abs(x) > 0.2) this.turn(-Math.sign(x) * (Math.abs(x) - 0.2) / 0.8 * this.turnSpeed * dt);
         } else {
           if (!this.turnLatched && Math.abs(x) > 0.7) { this.turn(x > 0 ? -SNAP : SNAP); this.turnLatched = true; }
           if (Math.abs(x) < 0.3) this.turnLatched = false;

@@ -1,4 +1,5 @@
 import { Viewer } from './viewer.js';
+import { TURN_SPEEDS, loadTurnSpeed, saveTurnSpeed } from './quality.js';
 import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges, loadAutoDoors, saveAutoDoors, loadFlag, saveFlag } from './quality.js';
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
@@ -1043,6 +1044,14 @@ function setMotion(name, on) {
 }
 xr.panel.onMotion = setMotion;
 for (const name of ['collide', 'gravity', 'smoothTurn']) setMotion(name, loadFlag(name));
+// rychlost plynulého otáčení
+function setTurnSpeed(key) {
+  xr.turnSpeed = (TURN_SPEEDS[key].deg * Math.PI) / 180;
+  saveTurnSpeed(key);
+  xr.panel.set({ turnSpeed: key });
+}
+xr.panel.onTurnSpeed = setTurnSpeed;
+setTurnSpeed(loadTurnSpeed());
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };

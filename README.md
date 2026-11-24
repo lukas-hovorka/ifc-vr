@@ -131,7 +131,8 @@ Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Ma
   otvorem dostanete i do suterénu (platí i pro teleport). A / B (nahoru / dolů) jsou s gravitací vypnuté.
 - **Automatické dveře** – stejné jako volba Dveře: Automaticky na počítači; automaticky se dveře otevřou za 0,4 s
   (ručně za 0,8 s), ať jsou otevřené dřív, než k nim dojdete.
-- **Plynulé otáčení** – pravá páčka do stran otáčí plynule (rychlost podle vychýlení), jinak po 30°.
+- **Plynulé otáčení** – pravá páčka do stran otáčí plynule (rychlost podle vychýlení), jinak po 30°. Rychlost při
+  plném vychýlení: **Pomalu** 60°/s, **Středně** 100°/s (výchozí), **Rychle** 150°/s; pamatuje se.
 
 ## Build na statický hosting
 

@@ -1,7 +1,7 @@
 // Panel ve VR na levém ovladači: kreslí se do canvasu podle EBC_UI_vibe, ovládá se paprskem z pravého ovladače.
 import * as THREE from 'three';
 import { t, px, font } from './theme.js';
-import { QUALITY } from './quality.js';
+import { QUALITY, TURN_SPEEDS } from './quality.js';
 import { drawUser } from './map.js';
 import { MOSES_RADII } from './moses.js';
 import { MEASURE_TOOLS } from './measure.js';
@@ -138,6 +138,7 @@ export class VRPanel {
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
     if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
+    if (r.key.startsWith('turn:')) { this.onTurnSpeed?.(r.key.slice(5)); return true; }
     if (r.key === 'collide' || r.key === 'gravity' || r.key === 'smoothTurn') { this.onMotion?.(r.key, !this.state[r.key]); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
@@ -279,6 +280,13 @@ export class VRPanel {
     y += bh + gap;
     this.button('doors', 'Automatické dveře', pad, y, half, { active: !!st.autoDoors });
     this.button('smoothTurn', 'Plynulé otáčení', pad + half + gap, y, half, { active: !!st.smoothTurn });
+    y += bh + pad;
+
+    // rychlost plynulého otáčení (bez plynulého otáčení se neuplatní)
+    y += this.sectionLabel('Rychlost plynulého otáčení', pad, y);
+    Object.entries(TURN_SPEEDS).forEach(([key, sp], i) => {
+      this.button(`turn:${key}`, `${sp.label} (${sp.deg}°/s)`, pad + i * (third + gap), y, third, { active: st.turnSpeed === key, disabled: !st.smoothTurn });
+    });
     y += bh + pad;
 
     // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)

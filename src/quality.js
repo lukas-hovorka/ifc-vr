@@ -69,6 +69,18 @@ export function saveFlag(name, on) {
   try { localStorage.setItem(`ifcvr.${name}`, on ? '1' : '0'); } catch { /* bez úložiště */ }
 }
 
+/** Rychlost plynulého otáčení (°/s při plném vychýlení páčky). */
+export const TURN_SPEEDS = { slow: { label: 'Pomalu', deg: 60 }, medium: { label: 'Středně', deg: 100 }, fast: { label: 'Rychle', deg: 150 } };
+const TURN_KEY = 'ifcvr.turnSpeed';
+
+export function loadTurnSpeed() {
+  try { const k = localStorage.getItem(TURN_KEY); return k in TURN_SPEEDS ? k : 'medium'; } catch { return 'medium'; }
+}
+
+export function saveTurnSpeed(key) {
+  try { localStorage.setItem(TURN_KEY, key); } catch { /* bez úložiště */ }
+}
+
 const DOORS_KEY = 'ifcvr.autodoors';
 
 /** Automatické otevírání dveří (zapamatovaná volba, výchozí vypnuto). */
