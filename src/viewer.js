@@ -34,12 +34,14 @@ const doorKey = (ref) => `${ref.model}:${ref.id}`;
 const AO_BASE = 0.32;
 const AO_STRENGTH = 1.8;
 const AO_MIN = 0.4;
+/** Zakrytí bodu, kolem kterého není žádná volná kostka (těsný spoj ploch). */
+const AO_JOINT = 0.55;
 function shadeAO(uniforms) {
   return (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float aoOffset;\nvarying vec3 vAoPos;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoPos = transformed + normalize(objectNormal) * aoOffset;');
+      .replace('#include <common>', '#include <common>\nuniform float aoOffset;\nvarying vec3 vAoPos;\nvarying vec3 vAoDir;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvAoDir = normalize(objectNormal) * aoOffset;\nvAoPos = transformed + vAoDir;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 #ifdef AO_VOLUME
@@ -47,10 +49,16 @@ uniform highp sampler3D aoTex;
 #endif
 uniform vec3 aoOrigin;
 uniform vec3 aoSize;
-varying vec3 vAoPos;`)
+varying vec3 vAoPos;
+varying vec3 vAoDir;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 #ifdef AO_VOLUME
-float aoOcc = texture(aoTex, (vAoPos - aoOrigin) / aoSize).r;
+// R = zakrytí × volno, G = volno: průměr jen z volných kostek před plochou. Těsně u spoje (kout, podlaha
+// u zdi) jsou kolem bodu jen kostky s plochou – doplní je druhé čtení o 1,3 kostky dál od plochy.
+vec2 aoRG = texture(aoTex, (vAoPos - aoOrigin) / aoSize).rg
+  + 0.35 * texture(aoTex, (vAoPos + 1.75 * vAoDir - aoOrigin) / aoSize).rg;
+// kolem bodu žádná volná kostka = těsný spoj: zakrytí jako v koutě (AO_JOINT), plynulý přechod
+float aoOcc = mix(${AO_JOINT.toFixed(2)}, aoRG.r / max(aoRG.g, 0.001), smoothstep(0.0, 0.35, aoRG.g));
 diffuseColor.rgb *= clamp(1.0 - ${AO_STRENGTH.toFixed(2)} * max(aoOcc - ${AO_BASE.toFixed(2)}, 0.0), ${AO_MIN.toFixed(2)}, 1.0);
 #endif`);
   };
@@ -59,8 +67,8 @@ diffuseColor.rgb *= clamp(1.0 - ${AO_STRENGTH.toFixed(2)} * max(aoOcc - ${AO_BAS
 /** Prostorová textura zastínění z výsledku workeru ({ data, dims, origin, cell }); bez něj prázdná. */
 function aoUniforms(ao) {
   const [nx, ny, nz] = ao ? ao.dims : [1, 1, 1];
-  const tex = new THREE.Data3DTexture(ao ? ao.data : new Uint8Array(1), nx, ny, nz);
-  tex.format = THREE.RedFormat;
+  const tex = new THREE.Data3DTexture(ao ? ao.data : new Uint8Array(2), nx, ny, nz);
+  tex.format = THREE.RGFormat;
   tex.type = THREE.UnsignedByteType;
   tex.minFilter = tex.magFilter = THREE.LinearFilter;
   tex.unpackAlignment = 1;

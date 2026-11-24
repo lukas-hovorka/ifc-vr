@@ -15,8 +15,6 @@ const MAX_CELLS = 16e6;
 const AO_RADIUS = 1.0;
 /** Paprsků z každé kostky (rovnoměrně do všech stran). */
 const AO_RAYS = 16;
-/** Kostka s plochou: průměr jen ze sousedů nejvýš o tolik (z 255) tmavších než nejsvětlejší soused. */
-const NEIGHBOUR_SPREAD = 64;
 /** Volná kostka s takovým zakrytím je uzavřená mezi plochami (uvnitř zdi), ne kout v prostoru. */
 const ENCLOSED = 0.8;
 
@@ -84,9 +82,12 @@ const DIRS = (() => {
 
 /**
  * Zastínění koutů jako prostorová mřížka (buckets: { position, index, color }; zakrývají jen
- * neprůhledné plochy). Vrátí { data (Uint8Array, 0 = volno, 255 = zcela zakryto), dims [nx, ny, nz],
- * origin [x, y, z] (roh mřížky), cell (m) }, nebo null bez neprůhledných ploch.
- * Pořadí v data: x nejrychleji, pak y, pak z (jako prostorová textura).
+ * neprůhledné plochy). Vrátí { data, dims [nx, ny, nz], origin [x, y, z] (roh mřížky), cell (m) },
+ * nebo null bez neprůhledných ploch. data = Uint8Array, dva bajty na kostku (textura RG):
+ * R = zakrytí × volno (0 = volno, 255 = zcela zakryto), G = 255 u volné kostky, 0 u kostky s plochou
+ * nebo uzavřené uvnitř zdi. Grafická karta čte R / G s plynulým přechodem, takže do bodu plochy
+ * se promítnou jen volné kostky před ní – ne kostky s plochou, vnitřek zdi ani prostor za zdí.
+ * Pořadí kostek: x nejrychleji, pak y, pak z (jako prostorová textura).
  */
 export function aoVolume(buckets, onProgress) {
   const opaque = buckets.filter((b) => b.color[3] >= 0.99 && b.index.length);
@@ -194,35 +195,15 @@ export function aoVolume(buckets, onProgress) {
     if ((z & 7) === 0) onProgress?.(0.2 + 0.75 * (z / nz));
   }
 
-  // 3) kostky s plochou dostanou průměr volných sousedů: textura se čte s plynulým přechodem mezi
-  // sousedními kostkami a hodnota „uvnitř zdi“ by jinak ztmavila nebo zesvětlila okraj plochy.
-  // Do průměru jen sousedé nejvýš o NEIGHBOUR_SPREAD tmavší než nejsvětlejší soused: volné kostky uvnitř
-  // silné zdi (uzavřené, skoro černé) a kout z druhé strany tenké příčky by jinak prosvítaly na plochu.
-  // Volné kostky uzavřené mezi plochami (uvnitř silné zdi nebo desky) se berou jako plné: jsou skoro
-  // černé a textura by je jinak přimíchala do bodů u spoje (podlaha u zdi).
+  // 3) volné kostky uzavřené mezi plochami (uvnitř silné zdi nebo desky) se berou jako plné: jsou skoro
+  // černé a do bodů u spoje by se přimíchaly; kostky s plochou nemají vlastní hodnotu (G = 0)
   const enclosedAt = Math.round(ENCLOSED * 255);
-  for (let i = 0; i < N; i++) if (!solid[i] && near[i] && data[i] >= enclosedAt) solid[i] = 2;
-  const pick = [];
-  for (let z = 1; z < nz - 1; z++) {
-    for (let y = 1; y < ny - 1; y++) {
-      for (let x = 1, i = (z * ny + y) * nx + 1; x < nx - 1; x++, i++) {
-        if (!solid[i]) continue;
-        pick.length = 0;
-        let lo = 255;
-        for (let dz = -nxy; dz <= nxy; dz += nxy) {
-          for (let dy = -nx; dy <= nx; dy += nx) {
-            for (let dx = -1; dx <= 1; dx++) {
-              const j = i + dz + dy + dx;
-              if (!solid[j]) { pick.push(data[j]); if (data[j] < lo) lo = data[j]; }
-            }
-          }
-        }
-        let sum = 0, n = 0;
-        for (const d of pick) if (d <= lo + NEIGHBOUR_SPREAD) { sum += d; n++; }
-        data[i] = n ? Math.round(sum / n) : 0;
-      }
-    }
+  const out = new Uint8Array(N * 2);
+  for (let i = 0; i < N; i++) {
+    if (solid[i] || (near[i] && data[i] >= enclosedAt)) continue;
+    out[i * 2] = data[i];
+    out[i * 2 + 1] = 255;
   }
   onProgress?.(1);
-  return { data, dims: [nx, ny, nz], origin: [x0, y0, z0], cell: cs };
+  return { data: out, dims: [nx, ny, nz], origin: [x0, y0, z0], cell: cs };
 }
