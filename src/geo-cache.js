@@ -5,7 +5,7 @@
 
 /** 2: křídla dveří (meta.doors, klíč skupiny barvy), 3: výšky podlaží (meta.storeys), 4: oprava výšek podlaží,
  * 5: zastínění koutů (ao: prostorová mřížka) a obrysové hrany (edges) */
-const VERSION = 10; // 10: prostorové bloky (blocks)
+const VERSION = 11; // 10: prostorové bloky (blocks), 11: vlastnosti prvků (props)
 const DB = 'ifc-vr-geometrie';
 /** Mezipaměť nesmí zabrat víc než tolik z místa, které prohlížeč stránce dovolí. */
 const SHARE = 0.5;
@@ -58,7 +58,9 @@ export async function cacheGet(key) {
  */
 export function cachePut(key, name, record) {
   if (!key) return Promise.resolve({ done: Promise.resolve() });
-  let bytes = (record.edges?.byteLength || 0) + (record.ao?.data.byteLength || 0);
+  // vlastnosti: odhad podle počtu prvků a sad (přesná velikost se v prohlížeči nedá zjistit levně)
+  let bytes = (record.edges?.byteLength || 0) + (record.ao?.data.byteLength || 0)
+    + (record.props ? record.props.ids.length * 200 + record.props.psets.reduce((s, p) => s + p[1].length * 24, 0) : 0);
   for (const b of record.buckets) {
     bytes += b.position.byteLength + b.normal.byteLength + b.index.byteLength + b.ranges.byteLength;
     if (b.bvh) bytes += b.bvh.roots.reduce((s, r) => s + r.byteLength, 0) + (b.bvh.indirectBuffer?.byteLength || 0);

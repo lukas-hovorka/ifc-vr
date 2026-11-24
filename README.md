@@ -33,7 +33,7 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - **obrysové hrany** (volba *Obrysové hrany* na počítači, tlačítko **Hrany** ve VR; výchozí vypnuto): tmavé
   čáry na hranách prvků jako na výkrese, zdi a stropy stejné barvy se od sebe lépe odliší
 - **zrušení načítání**: u průběhu je křížek, který zastaví právě načítaný model, a čekající soubory ve frontě
-  jdou vyřadit každý zvlášť. Každý model má vlastní worker, odebrání modelu uvolní i jeho paměť
+  jdou vyřadit každý zvlášť. Každý model se načítá ve vlastním workeru, který po načtení skončí
 - **otevírání dveří**: křídlo se otočí o 90° kolem pantu, od pozorovatele. Na počítači dvojklik na dveře
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
@@ -167,9 +167,13 @@ Rozlišení v brýlích se změní až po dalším vstupu do VR, ostatní hned. 
 ve všech úrovních:
 
 - Zpracovaná geometrie se ukládá do mezipaměti prohlížeče (IndexedDB). Další otevření stejného souboru
-  (stejný název, velikost a datum změny) přeskočí výpočet geometrie; IFC se pak otevře už jen kvůli
-  vlastnostem prvků, na pozadí. Mezipaměť zabere nejvýš polovinu místa, které prohlížeč dovolí (max. 6 GB),
+  (stejný název, velikost a datum změny) přeskočí výpočet geometrie i čtení IFC. Mezipaměť zabere nejvýš polovinu místa, které prohlížeč dovolí (max. 6 GB),
   nejdéle nepoužité modely se mažou samy; ručně ji vymaže odkaz „Vymazat mezipaměť“ v panelu.
+- Paměť u víc modelů najednou: vlastnosti všech prvků se vytáhnou už při načtení (jedním průchodem, u 0,5 GB
+  souboru kolem sekundy) a IFC se hned zavře; worker s web-ifc se po načtení ukončí. web-ifc by jinak držel
+  každý model otevřený v paměti WASM (nejméně 133 MB i u malého souboru, u 0,5 GB souboru kolem 1 GB) –
+  např. 13 profesí jedné stavby (0,95 GB IFC) by zabralo přes 3 GB a prohlížeč v brýlích by stránku ukončil.
+  Zůstává jen geometrie (u stejných 13 modelů 9,3 mil. trojúhelníků, asi 1 GB).
 - Prostorové bloky: velké neprůhledné skupiny barvy jsou rozdělené na bloky (celé prvky podle středu, hrana
   od 4 m, nejvýš ~240 bloků na model). Bloky mimo zorné pole se nekreslí a neprůhledné plochy se kreslí
   od nejbližších, takže zakryté plochy za zdmi se nevybarvují. Obraz je stejný; výběr, barvy, dveře a kolize

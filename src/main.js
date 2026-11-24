@@ -9,8 +9,9 @@ import { MOSES_RADII } from './moses.js';
 import { Measure } from './measure.js';
 
 // ---------- workery ----------
-// Každý model má vlastní worker (načtení i vlastnosti prvků): rozpracované načítání jde zrušit ukončením
-// workeru a odebrání modelu uvolní celou jeho paměť. Zvláštní worker obsluhuje jen mezipaměť.
+// Každý model se načítá ve vlastním workeru: rozpracované načítání jde zrušit ukončením workeru. Worker
+// vrátí geometrii i vlastnosti všech prvků a po zápisu do mezipaměti se ukončí (uvolní IFC i paměť
+// web-ifc, u víc modelů najednou by jinak brýlím došla paměť). Zvláštní worker obsluhuje jen mezipaměť.
 let onProgress = null;
 const WASM_PATH = new URL('wasm/', document.baseURI).href;
 /** Chyba ukončeného workeru (zrušené načítání), ne skutečné selhání. */
@@ -50,8 +51,8 @@ function spawnWorker() {
 const cacheWorker = spawnWorker();
 const call = cacheWorker.call;
 const ready = cacheWorker.ready;
-/** modelID → { worker, local (číslo modelu ve workeru) } */
-const modelWorkers = new Map();
+/** modelID → vlastnosti prvků z workeru: { ids, head, sets, psets } a mapa expressID → pořadí */
+const modelProps = new Map();
 let nextModelID = 1;
 
 // ---------- UI ----------
@@ -209,12 +210,12 @@ const isLoaded = (name, size) => loaded.some((m) => m.name === name && (size == 
 // Jeden pruh pro právě načítaný soubor (fáze mají pevné úseky), nad ním název a pořadí v dávce.
 const PHASES = {
   read: 'Čtu soubor', download: 'Stahuji', parse: 'Otevírám model',
-  geometry: 'Zpracovávám geometrii', ao: 'Počítám zastínění koutů', structure: 'Čtu strukturu modelu', bvh: 'Připravuji výběr prvků',
+  geometry: 'Zpracovávám geometrii', ao: 'Počítám zastínění koutů', structure: 'Čtu strukturu modelu', props: 'Čtu vlastnosti prvků', bvh: 'Připravuji výběr prvků',
   cache: 'Hledám v mezipaměti', save: 'Ukládám do mezipaměti',
 };
 const RANGES = {
-  file: { read: [0, 0.1], cache: [0.1, 0.11], parse: [0.11, 0.2], geometry: [0.2, 0.85], ao: [0.85, 0.9], bvh: [0.9, 0.95], structure: [0.95, 0.98], save: [0.98, 1] },
-  url: { download: [0, 0.4], cache: [0.4, 0.41], parse: [0.41, 0.48], geometry: [0.48, 0.88], ao: [0.88, 0.92], bvh: [0.92, 0.96], structure: [0.96, 0.98], save: [0.98, 1] },
+  file: { read: [0, 0.1], cache: [0.1, 0.11], parse: [0.11, 0.2], geometry: [0.2, 0.85], ao: [0.85, 0.9], bvh: [0.9, 0.95], structure: [0.95, 0.96], props: [0.96, 0.98], save: [0.98, 1] },
+  url: { download: [0, 0.4], cache: [0.4, 0.41], parse: [0.41, 0.48], geometry: [0.48, 0.88], ao: [0.88, 0.92], bvh: [0.92, 0.96], structure: [0.96, 0.97], props: [0.97, 0.98], save: [0.98, 1] },
 };
 const batch = { done: 0, total: 0, kind: 'file' };
 const queueText = () => (queue.length ? ` (ve frontě ${queue.length})` : '');
@@ -437,10 +438,24 @@ async function removeAll() {
   for (const m of all) closeModel(m.modelID);
 }
 
-/** Ukončí worker modelu (uvolní IFC i paměť WASM). */
+/** Zapomene vlastnosti prvků odebraného modelu. */
 function closeModel(modelID) {
-  modelWorkers.get(modelID)?.worker.terminate('Model je odebraný.');
-  modelWorkers.delete(modelID);
+  modelProps.delete(modelID);
+}
+
+/** Vlastnosti prvku { model, id } ve tvaru pro panel (typ, název, podlaží, sady), nebo null. */
+function propsOf(ref) {
+  const p = modelProps.get(ref.model);
+  const n = p?.at.get(ref.id);
+  if (n === undefined) return null;
+  const [type, name, objectType, globalId, storey] = p.head[n];
+  const sets = p.sets[n].map((i) => {
+    const [setName, flat] = p.psets[i];
+    const props = [];
+    for (let k = 0; k < flat.length; k += 2) props.push([flat[k], flat[k + 1]]);
+    return { name: setName, props };
+  });
+  return { modelID: ref.model, expressID: ref.id, type, name, objectType, globalId, storey, sets };
 }
 $('remove-all').addEventListener('click', (e) => { e.preventDefault(); removeAll(); });
 
@@ -460,8 +475,8 @@ async function loadBuffer(buffer, name, key = '', job = null) {
     if (job?.cancelled) throw new Error(CANCELLED);
     if (job) job.abort = null;
     const modelID = nextModelID++;
-    modelWorkers.set(modelID, { worker: w, local: res.modelID });
     registered = true;
+    if (res.props) modelProps.set(modelID, { ...res.props, at: new Map(res.props.ids.map((id, i) => [id, i])) });
     res.modelID = modelID;
     res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys, res.edges, res.ao);
     let tris = 0;
@@ -473,7 +488,8 @@ async function loadBuffer(buffer, name, key = '', job = null) {
     setStatus(`Načteno${res.cached ? ' z mezipaměti' : ''}: ${name} (${fmtSize(size)}, ${plural(res.elements, 'prvek', 'prvky', 'prvků')}, ${fmtTris(tris)}, ${s} s).`
       + (warn ? ` ${warn}` : ''), warn ? '' : 'success');
     dropState('loaded');
-    updateCacheInfo(w);
+    // po zápisu do mezipaměti worker skončí: uvolní IFC i paměť web-ifc
+    updateCacheInfo(w).finally(() => w.terminate());
     return true;
   } catch (err) {
     if (!registered) w.terminate();
@@ -668,10 +684,7 @@ async function select(ref) {
     xr.info.set({ info: null, door: null });
     return;
   }
-  let info;
-  const mw = modelWorkers.get(ref.model);
-  if (!mw) return;
-  try { info = await mw.worker.call('props', { modelID: mw.local, expressID: ref.id }); } catch (e) { console.warn(e); return; }
+  const info = propsOf(ref);
   if (my !== selectSeq || !info) return;
   if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
   xr.info.set({ info, door: doorState(ref) });
