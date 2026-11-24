@@ -296,6 +296,7 @@ function updateLoaded() {
     const nameBtn = li.querySelector('.model-file__name');
     nameBtn.title = `${m.name} – ${fmtTris(m.tris)}. Klepnutím přiblížíte.`;
     nameBtn.querySelector('.ebc-filelist__name').textContent = m.name;
+    nameBtn.title = m.name;
     nameBtn.querySelector('.model-file__meta').textContent = [m.schema, plural(m.elements, 'prvek', 'prvky', 'prvků')].filter(Boolean).join(' · ');
     nameBtn.addEventListener('click', () => viewer.fitModel(m.modelID));
     const sw = li.querySelector('.model__color');

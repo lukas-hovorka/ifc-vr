@@ -94,6 +94,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .model-file__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ebc-color-text-secondary); font-size: var(--ebc-font-size-xs); }
 .model-file__size { color: var(--ebc-color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .model-file.is-hidden .ebc-filelist__name { color: var(--ebc-color-text-secondary); }
+/* dlouhé názvy souborů se zalamují (liší se často až na konci), nezkracují */
+.model-file .ebc-filelist__name, .model-list .model__name, .side__progress-name { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 .model__color {
   flex: none; padding: 0; cursor: pointer;
   width: var(--ebc-size-check); height: var(--ebc-size-check); border-radius: 50%;

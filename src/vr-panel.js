@@ -208,6 +208,44 @@ export class VRPanel {
     return s + '…';
   }
 
+  /** Zkrácení uprostřed: začátek i konec názvu zůstanou vidět (soubory se často liší až na konci). */
+  ellipsizeMiddle(text, maxW) {
+    const c = this.ctx;
+    if (c.measureText(text).width <= maxW) return text;
+    let a = Math.ceil(text.length / 2), b = text.length - a;
+    while (a + b > 1 && c.measureText(`${text.slice(0, a)}…${text.slice(text.length - b)}`).width > maxW) {
+      if (a >= b) a--; else b--;
+    }
+    return `${text.slice(0, a)}…${text.slice(text.length - b)}`;
+  }
+
+  /**
+   * Název souboru do nejvýš `maxLines` řádků: láme se přednostně za _ - . nebo mezerou; co se nevejde,
+   * zkrátí se na posledním řádku zepředu (konec názvu, typicky profese, zůstane vidět).
+   */
+  breakName(text, maxW, maxLines = 2) {
+    const c = this.ctx;
+    const out = [];
+    let rest = text;
+    while (rest && out.length < maxLines - 1 && c.measureText(rest).width > maxW) {
+      let n = 1;
+      while (n < rest.length && c.measureText(rest.slice(0, n + 1)).width <= maxW) n++;
+      const sep = Math.max(...['_', '-', '.', ' '].map((ch) => rest.lastIndexOf(ch, n - 1)));
+      if (sep >= n * 0.4) n = sep + 1;
+      out.push(rest.slice(0, n));
+      rest = rest.slice(n);
+    }
+    if (rest) {
+      if (c.measureText(rest).width <= maxW) out.push(rest);
+      else {
+        let k = rest.length;
+        while (k > 1 && c.measureText(`…${rest.slice(rest.length - k)}`).width > maxW) k--;
+        out.push(`…${rest.slice(rest.length - k)}`);
+      }
+    }
+    return out;
+  }
+
   /** Text zalomený do šířky maxW (aktuálním písmem). */
   wrap(text, maxW) {
     const c = this.ctx;
@@ -375,7 +413,7 @@ export class VRPanel {
     c.textBaseline = 'top';
     c.font = font('typography.body', S);
     c.fillStyle = t('color.text.primary');
-    c.fillText(this.ellipsize(`Barva modelu ${m.name}`, inner), pad, y);
+    c.fillText(this.ellipsizeMiddle(`Barva modelu ${m.name}`, inner), pad, y);
     y += 26 * S;
     const pal = st.palette || [];
     const cols = 6;
@@ -416,7 +454,15 @@ export class VRPanel {
     const st = this.state;
     const pm = st.colorFor != null && st.models.find((x) => x.id === st.colorFor);
     if (pm) { this.drawPalette(y, bottom, pm, opts); return; }
-    const rowH = px('size.table.row-height') * S * 1.15;
+    const box = px('size.check') * S;
+    const delW = inner * 0.18;
+    // šířka názvu a počet řádků: dlouhé názvy souborů až na tři řádky (výška řádku podle nejdelšího)
+    const lineH = 17 * S;
+    const baseH = px('size.table.row-height') * S * 1.15;
+    const nameW = inner - delW - baseH - gap * 2 - (gap + box + gap) - gap;
+    c.font = font('typography.table-cell', S);
+    const maxLines = Math.max(1, ...st.models.map((m) => this.breakName(m.name, nameW, 3).length));
+    const rowH = Math.max(baseH, maxLines * lineH + 14 * S);
     const addY = bottom - bh;
     this.button('add', 'Přidat soubor (ukončí VR)', pad, addY, inner);
     const navH = bh + gap;
@@ -429,9 +475,7 @@ export class VRPanel {
       c.fillStyle = t('color.text.secondary');
       c.fillText('Žádný model není načtený.', pad, y + 4 * S, inner);
     }
-    const box = px('size.check') * S;
-    const delW = inner * 0.24;
-    const sw = rowH * 0.5;
+    const sw = baseH * 0.5;
     const bhh = (px('size.button.padding-y') * 2 + 18) * S;
     for (const m of st.models.slice(st.mpage * perPage, (st.mpage + 1) * perPage)) {
       const cy = y + rowH / 2;
@@ -441,7 +485,7 @@ export class VRPanel {
 
       // zapnout / vypnout (checkbox + název)
       const visKey = `vis:${m.id}`;
-      const visW = inner - delW - rowH - gap * 2;
+      const visW = inner - delW - baseH - gap * 2;
       if (this.hover === visKey) { c.fillStyle = t('color.list.hover'); c.fillRect(pad, y, visW, rowH); }
       const bx = pad + gap;
       this.rr(bx, cy - box / 2, box, box, px('radius.sm') * S);
@@ -458,24 +502,25 @@ export class VRPanel {
       c.textBaseline = 'middle';
       c.fillStyle = m.visible ? t('color.text.primary') : t('color.text.secondary');
       const nx = bx + box + gap;
-      c.fillText(this.ellipsize(m.name, visW - (nx - pad) - gap), nx, cy);
+      const lines = this.breakName(m.name, nameW, 3);
+      lines.forEach((ln, i) => c.fillText(ln, nx, cy + (i - (lines.length - 1) / 2) * lineH));
       this.regions.push({ key: visKey, x: pad, y, w: visW, h: rowH });
 
       // barva (kolečko; prázdné = původní barvy z IFC)
       const colKey = `col:${m.id}`;
       const sx = pad + visW + gap;
-      if (this.hover === colKey) { c.fillStyle = t('color.list.hover'); c.fillRect(sx, y, rowH, rowH); }
-      c.beginPath(); c.arc(sx + rowH / 2, cy, sw / 2, 0, Math.PI * 2);
+      if (this.hover === colKey) { c.fillStyle = t('color.list.hover'); c.fillRect(sx, y, baseH, rowH); }
+      c.beginPath(); c.arc(sx + baseH / 2, cy, sw / 2, 0, Math.PI * 2);
       if (m.color) { c.fillStyle = m.color; c.fill(); }
       c.strokeStyle = t('color.border.default'); c.lineWidth = 1.5 * S; c.stroke();
       if (!m.color) {
         c.font = font('typography.caption', S * 0.8);
         c.fillStyle = t('color.text.secondary');
         c.textAlign = 'center';
-        c.fillText('IFC', sx + rowH / 2, cy);
+        c.fillText('IFC', sx + baseH / 2, cy);
         c.textAlign = 'left';
       }
-      this.regions.push({ key: colKey, x: sx, y, w: rowH, h: rowH });
+      this.regions.push({ key: colKey, x: sx, y, w: baseH, h: rowH });
 
       // odebrat
       this.button(`del:${m.id}`, 'Odebrat', pad + inner - delW, cy - bhh / 2, delW);
@@ -530,7 +575,7 @@ export class VRPanel {
     c.font = font('typography.caption-bar', S);
     c.fillStyle = t('color.text.secondary');
     const x0 = pad + wIfc + c.measureText('.vr').width + gap * 2;
-    c.fillText(this.ellipsize(st.modelName || 'Žádný model', W - x0 - pad - FPS_W), x0, headH / 2);
+    c.fillText(this.ellipsizeMiddle(st.modelName || 'Žádný model', W - x0 - pad - FPS_W), x0, headH / 2);
 
     let y = headH + pad;
 
