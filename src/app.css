@@ -36,7 +36,9 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .side__status { margin: 0; color: var(--ebc-color-text-secondary); min-height: 1.43em; }
 .side__status.is-error { color: var(--ebc-color-text-error); }
 .side__status.is-success { color: var(--ebc-color-text-success); }
-.side__actions { display: flex; justify-content: flex-end; gap: var(--ebc-space-10); flex-wrap: wrap; }
+/* Mapa / AR / VR: viditelná tlačítka stejně široká přes celý řádek */
+.side__actions { display: flex; gap: var(--ebc-space-10); }
+.side__actions .ebc-btn { flex: 1 1 0; min-width: 0; padding-left: var(--ebc-space-6); padding-right: var(--ebc-space-6); white-space: nowrap; }
 
 /* seznam souborů: název, velikost, u načtených tlačítko Odebrat */
 .model-list { max-height: var(--ebc-size-filelist-max-height); overflow-y: auto; }
