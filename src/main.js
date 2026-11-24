@@ -313,7 +313,7 @@ function updateLoaded() {
     ui.loaded.appendChild(li);
   }
   xr.panel.set({
-    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color })),
+    models: loaded.map((m) => ({ id: m.modelID, name: m.name, visible: m.visible, color: m.color, custom: m.custom })),
   });
   ui.loadedSec.hidden = !loaded.length;
   $('remove-all').hidden = loaded.length < 2;
@@ -344,15 +344,6 @@ function setColor(modelID, color) {
   if (typeof color === 'string') m.custom = color;
   viewer.setModelColor(modelID, color);
   updateLoaded();
-}
-
-/** VR (bez výběru barvy): původní → barvy palety → vlastní (pokud byla zvolená) → původní. */
-function cycleColor(modelID) {
-  const m = loaded.find((x) => x.modelID === modelID);
-  if (!m) return;
-  const order = [null, ...PALETTE.map((x) => x.hex), ...(m.custom && !PALETTE.some((x) => x.hex === m.custom) ? [m.custom] : [])];
-  const i = order.indexOf(m.color);
-  setColor(modelID, order[(i + 1) % order.length]);
 }
 
 // ---------- nabídka barvy modelu (paleta, vlastní barva, původní z IFC) ----------
@@ -403,8 +394,13 @@ ui.side.querySelector('.side__body').addEventListener('scroll', closeColorMenu);
 
 xr.panel.onModel = (op, modelID) => {
   if (op === 'vis') setVisible(modelID, !loaded.find((x) => x.modelID === modelID)?.visible);
-  else if (op === 'col') cycleColor(modelID);
+  else if (op === 'col') xr.panel.set({ colorFor: modelID, palette: PALETTE });
   else if (op === 'del') removeModel(modelID);
+};
+// paleta barev ve VR: barva z palety, vlastní (zvolená na počítači) nebo původní z IFC
+xr.panel.onColor = (modelID, color) => {
+  setColor(modelID, color);
+  xr.panel.set({ colorFor: null });
 };
 // výběr souboru jde otevřít jen mimo VR: otevře se výběr a VR se ukončí
 xr.panel.actions.add = () => {

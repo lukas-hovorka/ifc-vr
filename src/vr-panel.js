@@ -125,10 +125,18 @@ export class VRPanel {
     const pg = this.state.tab === 'models' ? 'mpage' : this.state.tab === 'measure' ? 'mlpage' : 'page';
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
-    if (r.key.startsWith('tab-')) { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
+    if (r.key.startsWith('tab-')) {
+      this.state.colorFor = null; this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
     if (r.key.startsWith('lvl:')) { this.state.mapLevel = +r.key.slice(4); this.state.mapMsg = ''; this.draw(); return true; }
     if (r.key === 'map') {
       this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
+      return true;
+    }
+    if (r.key.startsWith('pal:')) {
+      const v = r.key.slice(4);
+      if (v === 'close') { this.state.colorFor = null; this.draw(); return true; }
+      const m = this.state.models.find((x) => x.id === this.state.colorFor);
+      if (m) this.onColor?.(m.id, v === 'orig' ? null : v === 'custom' ? m.custom : v);
       return true;
     }
     if (r.key.startsWith('mt:')) { this.onMeasure?.('tool', r.key.slice(3)); return true; }
@@ -340,10 +348,54 @@ export class VRPanel {
     c.fillText(st.mapMsg || 'Namiřte do půdorysu a stiskněte spoušť: přesun na místo.', pad, y + h + 6 * S, inner);
   }
 
-  /** Seznam načtených modelů: zapnout/vypnout, barva, odebrat; dole přidání dalšího souboru. */
-  drawModels(y, bottom, { pad, gap, inner, bh }) {
+  /** Barva modelu: paleta jako na počítači, vlastní barva (zvolená na počítači) a původní barvy z IFC. */
+  drawPalette(y, bottom, m, { pad, gap, inner, bh, half }) {
     const c = this.ctx;
     const st = this.state;
+    c.textBaseline = 'top';
+    c.font = font('typography.body', S);
+    c.fillStyle = t('color.text.primary');
+    c.fillText(this.ellipsize(`Barva modelu ${m.name}`, inner), pad, y);
+    y += 26 * S;
+    const pal = st.palette || [];
+    const cols = 6;
+    const sw = (inner - (cols - 1) * gap) / cols;
+    const sh = sw * 0.62;
+    pal.forEach((p, i) => {
+      const x = pad + (i % cols) * (sw + gap), yy = y + Math.floor(i / cols) * (sh + gap);
+      const key = `pal:${p.hex}`;
+      const on = m.color === p.hex;
+      this.rr(x, yy, sw, sh, px('radius.lg') * S);
+      c.fillStyle = p.hex;
+      c.fill();
+      c.lineWidth = (on || this.hover === key ? 3 : 1.5) * S;
+      c.strokeStyle = on ? t('color.accent.default') : this.hover === key ? t('color.text.primary') : t('color.border.default');
+      c.stroke();
+      this.regions.push({ key, x, y: yy, w: sw, h: sh });
+    });
+    y += Math.ceil(pal.length / cols) * (sh + gap) + gap;
+    // název barvy pod kurzorem (jinak zvolené)
+    const hov = pal.find((p) => `pal:${p.hex}` === this.hover) || pal.find((p) => p.hex === m.color);
+    c.font = font('typography.small', S);
+    c.fillStyle = t('color.text.secondary');
+    c.fillText(hov ? hov.name : '', pad, y);
+    y += 22 * S;
+    const custom = m.custom && !pal.some((p) => p.hex === m.custom);
+    if (custom) {
+      this.button('pal:custom', 'Vlastní barva', pad, y, half, { active: m.color === m.custom });
+      this.button('pal:orig', 'Původní z IFC', pad + half + gap, y, half, { active: m.color == null });
+    } else this.button('pal:orig', 'Původní barvy z IFC', pad, y, inner, { active: m.color == null });
+    y += bh + gap;
+    this.button('pal:close', 'Zpět na seznam modelů', pad, Math.min(y + gap, bottom - bh), inner);
+  }
+
+  /** Seznam načtených modelů: zapnout/vypnout, barva, odebrat; dole přidání dalšího souboru. */
+  drawModels(y, bottom, opts) {
+    const { pad, gap, inner, bh } = opts;
+    const c = this.ctx;
+    const st = this.state;
+    const pm = st.colorFor != null && st.models.find((x) => x.id === st.colorFor);
+    if (pm) { this.drawPalette(y, bottom, pm, opts); return; }
     const rowH = px('size.table.row-height') * S * 1.15;
     const addY = bottom - bh;
     this.button('add', 'Přidat soubor (ukončí VR)', pad, addY, inner);

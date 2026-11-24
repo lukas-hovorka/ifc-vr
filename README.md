@@ -6,7 +6,7 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - načtení IFC přetažením, výběrem souboru, ze složky `models/` nebo přes `?model=a.ifc&model=b.ifc`
 - **více modelů najednou** (např. profese stavby): sedí na sebe podle souřadnic prvního modelu; model se
   souřadnicemi dál než 10 km se umístí do počátku. Načtené modely jde jednotlivě skrýt, přebarvit jednou
-  barvou (kolečko vedle názvu: 12 barev, vlastní barva nebo původní barvy z IFC; ve VR se klepnutím střídají),
+  barvou (kolečko vedle názvu: 12 barev, vlastní barva nebo původní barvy z IFC; ve VR kolečko otevře stejnou paletu na panelu),
   přiblížit (klepnutí na název) a odebrat –
   na počítači v panelu vlevo, ve VR na záložce **Modely** panelu u levé ruky (tam i *Přidat soubor*,
   které ukončí VR a otevře výběr souborů)
