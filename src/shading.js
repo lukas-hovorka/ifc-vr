@@ -15,6 +15,10 @@ const MAX_CELLS = 16e6;
 const AO_RADIUS = 1.0;
 /** Paprsků z každé kostky (rovnoměrně do všech stran). */
 const AO_RAYS = 16;
+/** Kostka s plochou: průměr jen ze sousedů nejvýš o tolik (z 255) tmavších než nejsvětlejší soused. */
+const NEIGHBOUR_SPREAD = 64;
+/** Volná kostka s takovým zakrytím je uzavřená mezi plochami (uvnitř zdi), ne kout v prostoru. */
+const ENCLOSED = 0.8;
 
 /**
  * Obrysové hrany dílu (P = polohy, I = indexy): hrany, kde svírají sousední plochy úhel nad EDGE_ANGLE,
@@ -191,20 +195,30 @@ export function aoVolume(buckets, onProgress) {
   }
 
   // 3) kostky s plochou dostanou průměr volných sousedů: textura se čte s plynulým přechodem mezi
-  // sousedními kostkami a hodnota „uvnitř zdi“ by jinak ztmavila nebo zesvětlila okraj plochy
+  // sousedními kostkami a hodnota „uvnitř zdi“ by jinak ztmavila nebo zesvětlila okraj plochy.
+  // Do průměru jen sousedé nejvýš o NEIGHBOUR_SPREAD tmavší než nejsvětlejší soused: volné kostky uvnitř
+  // silné zdi (uzavřené, skoro černé) a kout z druhé strany tenké příčky by jinak prosvítaly na plochu.
+  // Volné kostky uzavřené mezi plochami (uvnitř silné zdi nebo desky) se berou jako plné: jsou skoro
+  // černé a textura by je jinak přimíchala do bodů u spoje (podlaha u zdi).
+  const enclosedAt = Math.round(ENCLOSED * 255);
+  for (let i = 0; i < N; i++) if (!solid[i] && near[i] && data[i] >= enclosedAt) solid[i] = 2;
+  const pick = [];
   for (let z = 1; z < nz - 1; z++) {
     for (let y = 1; y < ny - 1; y++) {
       for (let x = 1, i = (z * ny + y) * nx + 1; x < nx - 1; x++, i++) {
         if (!solid[i]) continue;
-        let sum = 0, n = 0;
+        pick.length = 0;
+        let lo = 255;
         for (let dz = -nxy; dz <= nxy; dz += nxy) {
           for (let dy = -nx; dy <= nx; dy += nx) {
             for (let dx = -1; dx <= 1; dx++) {
               const j = i + dz + dy + dx;
-              if (!solid[j]) { sum += data[j]; n++; }
+              if (!solid[j]) { pick.push(data[j]); if (data[j] < lo) lo = data[j]; }
             }
           }
         }
+        let sum = 0, n = 0;
+        for (const d of pick) if (d <= lo + NEIGHBOUR_SPREAD) { sum += d; n++; }
         data[i] = n ? Math.round(sum / n) : 0;
       }
     }

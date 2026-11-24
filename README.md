@@ -26,7 +26,8 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   Ve VR kolem vás (panel u levé ruky), na počítači kolem středu otáčení od podlahy jeho podlaží. Co je ve výřezu,
   nejde vybrat ani na to teleportovat
 - **zastínění koutů**: spoje zdí s podlahou a stropem, kouty a prostor pod nábytkem jsou tmavší (prostor
-  působí plastičtěji). Počítá se jednou při načtení (u velkého modelu asi sekundu) a ukládá se do mezipaměti
+  působí plastičtěji). Stín z koutu nebo z vnitřku zdi neprosvítá na druhou stranu zdi. Počítá se jednou
+  při načtení (u velkého modelu asi sekundu) a ukládá se do mezipaměti
 - **obrysové hrany** (volba *Obrysové hrany* na počítači, tlačítko **Hrany** ve VR; výchozí vypnuto): tmavé
   čáry na hranách prvků jako na výkrese, zdi a stropy stejné barvy se od sebe lépe odliší
 - **zrušení načítání**: u průběhu je křížek, který zastaví právě načítaný model, a čekající soubory ve frontě
