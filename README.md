@@ -170,6 +170,10 @@ ve všech úrovních:
   (stejný název, velikost a datum změny) přeskočí výpočet geometrie; IFC se pak otevře už jen kvůli
   vlastnostem prvků, na pozadí. Mezipaměť zabere nejvýš polovinu místa, které prohlížeč dovolí (max. 6 GB),
   nejdéle nepoužité modely se mažou samy; ručně ji vymaže odkaz „Vymazat mezipaměť“ v panelu.
+- Prostorové bloky: velké neprůhledné skupiny barvy jsou rozdělené na bloky (celé prvky podle středu, hrana
+  od 4 m, nejvýš ~240 bloků na model). Bloky mimo zorné pole se nekreslí a neprůhledné plochy se kreslí
+  od nejbližších, takže zakryté plochy za zdmi se nevybarvují. Obraz je stejný; výběr, barvy, dveře a kolize
+  pracují dál se sloučenou geometrií. Pro porovnání výkonu jde vypnout v nastavení VR („Jen v zorném poli“).
 - Na počítači se scéna kreslí jen po změně (pohyb kamery, výběr, model); ve VR každý snímek.
 - Řádek „Výkon“ v panelu ukazuje snímky za sekundu, trojúhelníky a počet vykreslení.
 

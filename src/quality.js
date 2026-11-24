@@ -60,9 +60,9 @@ export function saveEdges(on) {
   try { localStorage.setItem(EDGES_KEY, on ? '1' : '0'); } catch { /* bez úložiště */ }
 }
 
-/** Zapamatovaná volba zapnuto / vypnuto (výchozí vypnuto), např. 'collide', 'gravity'. */
-export function loadFlag(name) {
-  try { return localStorage.getItem(`ifcvr.${name}`) === '1'; } catch { return false; }
+/** Zapamatovaná volba zapnuto / vypnuto, např. 'collide', 'gravity' (bez uložené volby `def`). */
+export function loadFlag(name, def = false) {
+  try { const v = localStorage.getItem(`ifcvr.${name}`); return v === null ? def : v === '1'; } catch { return def; }
 }
 
 export function saveFlag(name, on) {

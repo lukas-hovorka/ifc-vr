@@ -1039,6 +1039,14 @@ function setMotion(name, on) {
   xr.panel.set({ [name]: on });
 }
 xr.panel.onMotion = setMotion;
+// kreslení po prostorových blocích (výchozí zapnuto; vypnutím jde porovnat výkon)
+function setBlocks(on) {
+  viewer.setBlocks(on);
+  saveFlag('blocks', on);
+  xr.panel.set({ blocks: on });
+}
+xr.panel.onBlocks = setBlocks;
+setBlocks(loadFlag('blocks', true));
 for (const name of ['collide', 'gravity', 'smoothTurn']) setMotion(name, loadFlag(name));
 // rychlost plynulého otáčení
 function setTurnSpeed(key) {

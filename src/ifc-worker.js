@@ -9,6 +9,13 @@ import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
 import { findLeaves, NOT_SWINGING } from './doors.js';
 import { featureEdges, aoVolume } from './shading.js';
 
+/** Prostorové bloky: nejmenší hrana bloku v m; hrana se zvětšuje, dokud bloků není nejvýš MAX_BLOCKS
+ * (každý blok je jedno volání kreslení, těch brýle zvládnou jen stovky). */
+const BLOCK_MIN = 4;
+const MAX_BLOCKS = 240;
+/** Skupina barvy s méně indexy se nedělí (úspora by byla menší než cena volání kreslení navíc). */
+const MIN_SPLIT = 30000;
+
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
 const apis = [];
@@ -120,6 +127,7 @@ async function load(buffer, key, name) {
     for (const b of cached.buckets) {
       transfer.push(b.position.buffer, b.normal.buffer, b.index.buffer, b.ranges.buffer);
       if (b.bvh) { transfer.push(...b.bvh.roots); if (b.bvh.indirectBuffer) transfer.push(b.bvh.indirectBuffer.buffer); }
+      if (b.blocks) transfer.push(b.blocks.buffer);
     }
     const after = () => {
       const p = withApi(buffer.byteLength, (local) => {
@@ -388,6 +396,7 @@ function buildGeometry(modelID) {
   const out = [];
   const transfer = [];
   const list = [...buckets.values()].filter((b) => b.idx.n);
+  spatialBlocks(list, doors);
   const totalTris = Math.max(list.reduce((s, b) => s + b.idx.n, 0), 1);
   let doneTris = 0;
   // zastínění koutů (prostorová mřížka kolem ploch); výsledek jde do mezipaměti, podruhé se nepočítá
@@ -406,9 +415,11 @@ function buildGeometry(modelID) {
       normal: b.nrm.result(),
       index: b.idx.result(),
       ranges: Uint32Array.from(b.ranges),
+      blocks: b.blocks || null,
       bvh: null,
     };
     transfer.push(item.position.buffer, item.normal.buffer, item.index.buffer, item.ranges.buffer);
+    if (item.blocks) transfer.push(item.blocks.buffer);
     // strom pro výběr prvků (raycast) se staví tady, ne v hlavním vlákně: u milionů trojúhelníků trvá sekundy
     try {
       const g = new BufferGeometry();
@@ -565,5 +576,101 @@ async function handle({ id, type, payload }) {
     }
   } catch (err) {
     self.postMessage({ id, error: err?.message || String(err) });
+  }
+}
+
+/**
+ * Rozdělí neprůhledné skupiny barvy na prostorové bloky: prvky (celé, nerozřezané) se podle středu
+ * roztřídí do krychlí a v indexech se seřadí po blocích. Prohlížeč pak kreslí každý blok zvlášť
+ * (stejné pole vrcholů a indexů, jen jiný rozsah) a bloky mimo zorné pole vynechá.
+ * b.blocks = Float64Array [začátek, počet indexů, minX, minY, minZ, maxX, maxY, maxZ] po blocích.
+ * Rozsahy prvků (ranges) a díly křídel dveří (segs) se přepočítají na nové pořadí.
+ */
+function spatialBlocks(list, doors) {
+  const info = [];
+  for (const b of list) {
+    if (b.color[3] < 0.99 || b.idx.n < MIN_SPLIT) continue; // průhledné (řazení skel) a malé skupiny celé
+    const R = b.ranges, P = b.pos.a, I = b.idx.a;
+    const n = R.length / 3;
+    const C = new Float32Array(n * 3);
+    for (let r = 0; r < n; r++) {
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (let i = R[r * 3], e = i + R[r * 3 + 1]; i < e; i++) {
+        const v = I[i] * 3, x = P[v], y = P[v + 1], z = P[v + 2];
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (z < z0) z0 = z; if (z > z1) z1 = z;
+      }
+      C[r * 3] = (x0 + x1) / 2; C[r * 3 + 1] = (y0 + y1) / 2; C[r * 3 + 2] = (z0 + z1) / 2;
+    }
+    info.push({ b, n, C });
+  }
+  if (!info.length) return;
+  const cellKey = (C, r, s) => `${Math.floor(C[r * 3] / s)},${Math.floor(C[r * 3 + 1] / s)},${Math.floor(C[r * 3 + 2] / s)}`;
+  // hrana bloku: od BLOCK_MIN zvětšovat, dokud je bloků (= volání kreslení) moc
+  const others = list.length - info.length;
+  let s = BLOCK_MIN;
+  for (;;) {
+    let count = others;
+    for (const { n, C } of info) {
+      const cells = new Set();
+      for (let r = 0; r < n; r++) cells.add(cellKey(C, r, s));
+      count += cells.size;
+    }
+    if (count <= MAX_BLOCKS || s > 500) break;
+    s *= 1.25;
+  }
+  const remap = new Map(); // klíč skupiny → { oldStart, newStart } (pro díly křídel dveří)
+  for (const { b, n, C } of info) {
+    const byCell = new Map();
+    for (let r = 0; r < n; r++) {
+      const k = cellKey(C, r, s);
+      (byCell.get(k) || byCell.set(k, []).get(k)).push(r);
+    }
+    if (byCell.size < 2) continue;
+    const R = b.ranges, P = b.pos.a, I = b.idx.a;
+    const NI = new Uint32Array(b.idx.n);
+    const NR = new Array(R.length);
+    const oldStart = new Uint32Array(n), newStart = new Uint32Array(n);
+    const blocks = new Float64Array(byCell.size * 8);
+    let o = 0, bi = 0, ri = 0;
+    for (const rs of byCell.values()) {
+      const start = o;
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (const r of rs) {
+        const st = R[r * 3], cnt = R[r * 3 + 1];
+        oldStart[ri] = st; newStart[ri] = o;
+        NR[ri * 3] = o; NR[ri * 3 + 1] = cnt; NR[ri * 3 + 2] = R[r * 3 + 2];
+        ri++;
+        for (let i = st, e = st + cnt; i < e; i++) {
+          const v = I[i];
+          NI[o++] = v;
+          const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+          if (x < x0) x0 = x; if (x > x1) x1 = x;
+          if (y < y0) y0 = y; if (y > y1) y1 = y;
+          if (z < z0) z0 = z; if (z > z1) z1 = z;
+        }
+      }
+      blocks.set([start, o - start, x0, y0, z0, x1, y1, z1], bi * 8);
+      bi++;
+    }
+    b.idx.a = NI;
+    b.ranges = NR;
+    b.blocks = blocks;
+    // převod starého začátku indexu na nový: rozsahy seřazené podle starého začátku
+    const order = Array.from(oldStart.keys()).sort((x, y) => oldStart[x] - oldStart[y]);
+    remap.set(b.key, { starts: order.map((i) => oldStart[i]), news: order.map((i) => newStart[i]) });
+  }
+  // díly křídel dveří ukazují do indexů skupiny: posunout na nové místo (díl leží uvnitř rozsahu prvku)
+  for (const d of doors) {
+    for (const l of d.leaves) {
+      for (const seg of l.segs) {
+        const m = remap.get(seg[0]);
+        if (!m) continue;
+        let lo = 0, hi = m.starts.length - 1;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (m.starts[mid] <= seg[1]) lo = mid; else hi = mid - 1; }
+        seg[1] = m.news[lo] + (seg[1] - m.starts[lo]);
+      }
+    }
   }
 }

@@ -93,6 +93,11 @@ export class Viewer {
     this.quality = QUALITY.balanced;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatio));
     this.renderer.xr.enabled = true;
+    /** prostorové bloky (addBlocks): kreslit jen bloky v zorném poli */
+    this.blocksOn = true;
+    // neprůhledné od nejbližších bez ohledu na materiál (výchozí řazení napřed seskupí podle materiálu):
+    // zdi před uživatelem zapíšou hloubku dřív a zakryté plochy za nimi se nevybarvují
+    this.renderer.setOpaqueSort((a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || a.z - b.z || a.id - b.id);
     container.appendChild(this.renderer.domElement);
 
     this.bg = new THREE.Color(t('color.log.bg'));
@@ -271,8 +276,47 @@ export class Viewer {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Prostorové bloky skupiny barvy: každý blok je vlastní objekt nad stejnými poli vrcholů a indexů
+   * (jen rozsah indexů a obálka bloku), takže three.js bloky mimo zorné pole vynechá. Výběr, barvy,
+   * zvýraznění, dveře i kolize dál pracují se sloučeným objektem; ten se při zapnutých blocích nekreslí.
+   */
+  addBlocks(mesh, blocks) {
+    const g = mesh.geometry;
+    for (let k = 0; k < blocks.length; k += 8) {
+      const bg = new THREE.BufferGeometry();
+      bg.setAttribute('position', g.getAttribute('position'));
+      bg.setAttribute('normal', g.getAttribute('normal'));
+      bg.setIndex(g.index);
+      bg.setDrawRange(blocks[k], blocks[k + 1]);
+      bg.boundingBox = new THREE.Box3(new THREE.Vector3(blocks[k + 2], blocks[k + 3], blocks[k + 4]), new THREE.Vector3(blocks[k + 5], blocks[k + 6], blocks[k + 7]));
+      bg.boundingSphere = bg.boundingBox.getBoundingSphere(new THREE.Sphere());
+      const bm = new THREE.Mesh(bg, mesh.material);
+      bm.raycast = () => {};
+      bm.matrixAutoUpdate = false;
+      bm.renderOrder = mesh.renderOrder;
+      bm.userData.block = true;
+      bm.visible = this.blocksOn;
+      mesh.add(bm);
+    }
+    mesh.userData.blocked = true;
+    if (this.blocksOn) g.setDrawRange(0, 0);
+  }
+
+  /** Kreslení po prostorových blocích zapnout / vypnout (vypnuto = celé skupiny barvy jako dřív). */
+  setBlocks(on) {
+    this.blocksOn = on;
+    for (const m of this.meshes) {
+      if (!m.userData.blocked) continue;
+      m.geometry.setDrawRange(0, on ? 0 : Infinity);
+      for (const c of m.children) if (c.userData.block) c.visible = on;
+    }
+    this.invalidate();
+  }
+
   disposeMesh(m) {
     this.invalidate();
+    for (const c of m.children) if (c.userData.block) c.geometry.dispose();
     m.geometry.disposeBoundsTree();
     m.geometry.dispose();
     this.moses.forget(m.material);
@@ -352,6 +396,7 @@ export class Viewer {
       mesh.renderOrder = transparent ? 1 : 0;
       mesh.matrixAutoUpdate = false;
       group.add(mesh);
+      if (b.blocks?.length > 8) this.addBlocks(mesh, b.blocks);
       mesh.updateMatrixWorld(true);
       this.meshes.push(mesh);
     }

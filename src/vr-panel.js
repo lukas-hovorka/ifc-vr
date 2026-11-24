@@ -145,6 +145,7 @@ export class VRPanel {
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
+    if (r.key === 'blocks') { this.onBlocks?.(this.state.blocks === false); return true; }
     if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
     if (r.key.startsWith('turn:')) { this.onTurnSpeed?.(r.key.slice(5)); return true; }
     if (r.key === 'collide' || r.key === 'gravity' || r.key === 'smoothTurn') { this.onMotion?.(r.key, !this.state[r.key]); return true; }
@@ -279,6 +280,9 @@ export class VRPanel {
     QUALITY_KEYS.forEach(([key, label], i) => {
       this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
     });
+    y += bh + gap;
+    // kreslení po prostorových blocích (vynechá části mimo zorné pole); přepínač pro porovnání výkonu
+    this.button('blocks', 'Jen v zorném poli', pad, y, half, { active: st.blocks !== false });
     y += bh + pad;
 
     // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře jen ve skutečném měřítku
