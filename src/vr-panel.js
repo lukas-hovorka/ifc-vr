@@ -281,13 +281,17 @@ export class VRPanel {
     });
     y += bh + pad;
 
-    // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře, plynulé otáčení – přepínače
+    // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře jen ve skutečném měřítku
+    // (v maketě se v modelu nechodí); plynulé otáčení platí v obou
+    const full = st.mode !== 'mini';
     y += this.sectionLabel('Pohyb', pad, y);
-    this.button('collide', 'Kolize', pad, y, half, { active: !!st.collide });
-    this.button('gravity', 'Gravitace', pad + half + gap, y, half, { active: !!st.gravity });
-    y += bh + gap;
-    this.button('doors', 'Automatické dveře', pad, y, half, { active: !!st.autoDoors });
-    this.button('smoothTurn', 'Plynulé otáčení', pad + half + gap, y, half, { active: !!st.smoothTurn });
+    if (full) {
+      this.button('collide', 'Kolize', pad, y, half, { active: !!st.collide });
+      this.button('gravity', 'Gravitace', pad + half + gap, y, half, { active: !!st.gravity });
+      y += bh + gap;
+      this.button('doors', 'Automatické dveře', pad, y, half, { active: !!st.autoDoors });
+    }
+    this.button('smoothTurn', 'Plynulé otáčení', full ? pad + half + gap : pad, y, half, { active: !!st.smoothTurn });
     y += bh + pad;
 
     // rychlost plynulého otáčení (bez plynulého otáčení se neuplatní)
@@ -297,12 +301,23 @@ export class VRPanel {
     });
     y += bh + pad;
 
-    // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)
-    y += this.sectionLabel('Mojžíšův mód', pad, y);
-    const w = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
-    MOSES_RADII.forEach((r, i) => {
-      this.button(`moses:${r}`, r ? `${r} m` : 'Vyp.', pad + i * (w + gap), y, w, { active: (st.moses || 0) === r });
-    });
+    // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu) – jen ve skutečném měřítku
+    if (full) {
+      y += this.sectionLabel('Mojžíšův mód', pad, y);
+      const w = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
+      MOSES_RADII.forEach((r, i) => {
+        this.button(`moses:${r}`, r ? `${r} m` : 'Vyp.', pad + i * (w + gap), y, w, { active: (st.moses || 0) === r });
+      });
+    } else {
+      const c = this.ctx;
+      c.textBaseline = 'top';
+      c.font = font('typography.small', S);
+      c.fillStyle = t('color.text.secondary');
+      for (const line of this.wrap('Kolize, gravitace, automatické dveře a Mojžíšův mód jsou jen ve skutečném měřítku 1:1.', inner)) {
+        c.fillText(line, pad, y);
+        y += 17 * S;
+      }
+    }
   }
 
   /** Mapa: tlačítka podlaží, půdorys se značkou uživatele; klepnutím do půdorysu přesun. */
@@ -345,7 +360,8 @@ export class VRPanel {
     c.font = font('typography.small', S);
     c.textBaseline = 'top';
     c.fillStyle = st.mapMsg ? t('color.text.error') : t('color.text.secondary');
-    c.fillText(st.mapMsg || 'Namiřte do půdorysu a stiskněte spoušť: přesun na místo.', pad, y + h + 6 * S, inner);
+    const hint = st.mode === 'mini' ? 'Namiřte do půdorysu a stiskněte spoušť: vstup do modelu 1:1 na tom místě.' : 'Namiřte do půdorysu a stiskněte spoušť: přesun na místo.';
+    c.fillText(st.mapMsg || hint, pad, y + h + 6 * S, inner);
   }
 
   /** Barva modelu: paleta jako na počítači, vlastní barva (zvolená na počítači) a původní barvy z IFC. */
@@ -526,10 +542,10 @@ export class VRPanel {
       y += bh + pad;
 
       y += this.sectionLabel('Pohled', pad, y);
-      this.button('reset', 'Na začátek', pad, y, q4);
-      this.button('grid', 'Mřížka', pad + q4 + gap, y, q4, { active: st.grid !== false });
-      this.button('edges', 'Hrany', pad + 2 * (q4 + gap), y, q4, { active: !!st.edges });
-      this.button('exit', 'Ukončit VR', pad + 3 * (q4 + gap), y, q4);
+      // v AR je místo mřížky skutečná podlaha (průhled kamer): tlačítko Mřížka chybí
+      const view = [['reset', 'Na začátek'], ...(st.ar ? [] : [['grid', 'Mřížka', st.grid !== false]]), ['edges', 'Hrany', !!st.edges], ['exit', st.ar ? 'Ukončit AR' : 'Ukončit VR']];
+      const vw = (inner - (view.length - 1) * gap) / view.length;
+      view.forEach(([key, label, active], i) => this.button(key, label, pad + i * (vw + gap), y, vw, { active: !!active }));
       y += bh + pad;
     }
     // záložky (vybraný prvek má vlastní panel vpravo)

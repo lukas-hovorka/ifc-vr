@@ -122,7 +122,10 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | Y | přepnout Skutečné 1:1 / Maketa |
 
 Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Mapa**, **Měření** a **Nastavení**
-(úroveň zobrazení, pohyb, Mojžíšův mód). Volby pohybu se pamatují, výchozí je vypnuto:
+(úroveň zobrazení, pohyb, Mojžíšův mód). Panel ukazuje jen volby, které v daném zobrazení dávají smysl: v AR
+chybí Mřížka (podlaha je skutečná) a tlačítko se jmenuje Ukončit AR; v maketě jsou z pohybu jen plynulé otáčení
+(kolize, gravitace, automatické dveře a Mojžíšův mód platí jen ve skutečném měřítku 1:1) a klepnutí do mapy
+přenese do modelu 1:1 na zvolené místo. Volby pohybu se pamatují, výchozí je vypnuto:
 
 - **Kolize** – chůze páčkou se zastaví před zdí (hlava 40 cm od zdi, i při chůzi podél zdi), podél zdi se klouže.
   Zdi hlídají paprsky v úrovni hrudníku a očí, nižší a tenké prvky (zábradlí, sloupky, parapety) kvádr těla

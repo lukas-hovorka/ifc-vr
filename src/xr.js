@@ -173,6 +173,7 @@ export class XRControls {
     this.v.camera.quaternion.identity();
     this.mode = passthrough ? 'mini' : 'full';
     this.fullPose = null;
+    this.panel.set({ ar: passthrough, mode: this.mode });
     // pozice se nastaví až v prvním snímku, kdy je známá poloha hlavy
     this.needsInitialPose = 3;   // pár snímků, než je známá poloha hlavy
   }
