@@ -14,9 +14,14 @@ const SNAP = THREE.MathUtils.degToRad(30);
 const ARC_SPEED = 9;         // počáteční rychlost paraboly teleportu m/s
 const MAKETA_SIZE = 1.0;     // největší rozměr makety v m
 const TABLE_HEIGHT = 0.8;    // výška spodku makety nad podlahou
-/** Kolize: poloměr těla (m) a výšky nad nohama, ve kterých se hlídá zeď (koleno nad schodem, hrudník). */
-const BODY_RADIUS = 0.25;
+/**
+ * Kolize: odstup hlavy od zdi (m, kolmo ke zdi – ať při chůzi podél zdi není vidět do ní) a výšky nad nohama,
+ * ve kterých se zeď hlídá (koleno nad schodem, hrudník; navíc výška očí).
+ */
+const BODY_RADIUS = 0.4;
 const BODY_HEIGHTS = [0.55, 1.2];
+/** Šikmý pohyb ke zdi: paprsek se hledá až do BODY_RADIUS / MIN_COS (úhel ke zdi asi do 80°). */
+const MIN_COS = 0.17;
 /** Gravitace: nejvyšší schod, na který se vystoupá (m), rychlost výstupu (m/s), zrychlení pádu (m/s²). */
 const STEP_UP = 0.45;
 const STEP_SPEED = 2.5;
@@ -326,35 +331,73 @@ export class XRControls {
 
   /**
    * Kolize se zdmi: pohyb (svět, vodorovný) se zastaví před zdí, podél zdi se dá klouzat.
-   * Hlídá se v úrovni kolen (nad schodem) a hrudníku; teleport kolize nehlídá.
+   * Hlídá se v úrovni kolen (nad schodem), hrudníku a očí; odstup od zdi se měří kolmo ke zdi.
+   * Teleport kolize nehlídá.
    */
   collideMove(move) {
-    const v = this.v;
-    const head = v.camera.getWorldPosition(new THREE.Vector3());
-    const feet = v.rig.position.y;
+    const head = this.v.camera.getWorldPosition(new THREE.Vector3());
+    const feet = this.v.rig.position.y;
+    this.sweepMove(move, head, feet);
+    this.keepClear(move, head, feet);
+  }
+
+  /** Pohyb proti zdi: zastavit v odstupu BODY_RADIUS, zbytek pohybu podél zdi. */
+  sweepMove(move, head, feet) {
     for (let pass = 0; pass < 2; pass++) {
       const len = move.length();
       if (len < 1e-6) return;
       const dir = move.clone().divideScalar(len);
-      let hit = null;
-      for (const hgt of BODY_HEIGHTS) {
-        const h = this.bodyHit(new THREE.Vector3(head.x, feet + hgt, head.z), dir, len + BODY_RADIUS);
-        if (h && (!hit || h.distance < hit.distance)) hit = h;
+      // nejbližší zeď ze všech výšek: kolik se dá jít, než bude hlava blíž ke zdi než BODY_RADIUS (kolmo)
+      let go = len, n = null;
+      for (const hgt of [...BODY_HEIGHTS, Math.max(head.y - feet, 1.3)]) {
+        const h = this.bodyHit(new THREE.Vector3(head.x, feet + hgt, head.z), dir, len + BODY_RADIUS / MIN_COS);
+        if (!h?.face) continue;
+        // normála zdi ve vodorovné rovině, otočená proti pohybu
+        const hn = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+        hn.y = 0;
+        if (hn.lengthSq() < 1e-6) continue;
+        hn.normalize();
+        if (hn.dot(dir) > 0) hn.negate();
+        const cos = Math.max(-hn.dot(dir), MIN_COS);
+        const g = Math.max(0, h.distance - BODY_RADIUS / cos);
+        if (g < go) { go = g; n = hn; }
       }
-      if (!hit?.face) return;
-      // klouzání: odečíst složku pohybu proti zdi (normála ve vodorovné rovině, otočená proti pohybu)
-      const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-      n.y = 0;
-      if (n.lengthSq() < 1e-6) { move.set(0, 0, 0); return; }
-      n.normalize();
-      if (n.dot(dir) > 0) n.negate();
-      // až ke zdi (bez poloměru těla); zbytek pohybu podél zdi (napoprvé, podruhé už jen ke zdi)
-      const go = Math.min(Math.max(0, hit.distance - BODY_RADIUS), len);
+      if (!n) return;
+      // až k odstupu od zdi; zbytek pohybu podél zdi (napoprvé, podruhé už jen ke zdi)
       const rest = move.clone().multiplyScalar(1 - go / len);
       rest.addScaledVector(n, -rest.dot(n));
       move.copy(dir).multiplyScalar(go);
       if (pass === 1) return;
       move.add(rest);
+    }
+  }
+
+  /**
+   * Odstup do stran: při chůzi skoro podél zdi ji paprsek ve směru pohybu nenajde včas. Z cílového místa se
+   * proto hledá zeď všemi směry do BODY_RADIUS a ruší se ta část pohybu, která by k ní hlavu přiblížila.
+   */
+  keepClear(move, head, feet) {
+    if (move.lengthSq() < 1e-12) return;
+    const dir = new THREE.Vector3();
+    for (const hgt of [...BODY_HEIGHTS, Math.max(head.y - feet, 1.3)]) {
+      const o = new THREE.Vector3(head.x + move.x, feet + hgt, head.z + move.z);
+      for (let a = 0; a < 8; a++) {
+        const ang = a * Math.PI / 4;
+        dir.set(Math.cos(ang), 0, Math.sin(ang));
+        const h = this.bodyHit(o, dir, BODY_RADIUS);
+        if (!h?.face) continue;
+        const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+        n.y = 0;
+        if (n.lengthSq() < 1e-6) continue;
+        n.normalize();
+        if (n.dot(dir) > 0) n.negate();
+        const into = -move.dot(n);              // kolik se pohyb přibližuje ke zdi
+        const gap = BODY_RADIUS - h.distance * -n.dot(dir);   // o kolik je hlava blíž, než má
+        if (into > 0 && gap > 0) {
+          move.addScaledVector(n, Math.min(into, gap));
+          o.set(head.x + move.x, feet + hgt, head.z + move.z);
+        }
+      }
     }
   }
 

@@ -109,7 +109,7 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 
 Řádek **Pohyb** na panelu (volby se pamatují, výchozí vypnuto):
 
-- **Kolize** – chůze páčkou se zastaví před zdí (25 cm), podél zdi se klouže. Hlídá se v úrovni kolen
+- **Kolize** – chůze páčkou se zastaví před zdí (40 cm, i při chůzi podél zdi), podél zdi se klouže. Hlídá se v úrovni kolen
   (nad schodem) a hrudníku; teleport a fyzická chůze po místnosti kolize nehlídají.
 - **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
   mimo budovu drží podlaha 1NP. A / B (nahoru / dolů) jsou s gravitací vypnuté.
