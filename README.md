@@ -131,6 +131,8 @@ přenese do modelu 1:1 na zvolené místo. Volby pohybu se pamatují, výchozí 
   Zdi hlídají paprsky v úrovni hrudníku a očí, nižší a tenké prvky (zábradlí, sloupky, parapety) kvádr těla
   od výšky schodu po oči (zastaví asi 30 cm před nimi). U dveří s křídly (do 80 cm od křídla) je odstup jen 15 cm,
   aby se dveřmi prošlo i mimo jejich střed. Teleport a fyzická chůze po místnosti kolize nehlídají.
+  Kolize platí i bez gravitace: let nahoru / dolů (A / B) se zastaví pod stropem a na podlaze a výška
+  těla se bere od skutečné podlahy pod hlavou (výška podlaží z IFC bývá pod nášlapnou vrstvou).
 - **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
   podlaha se hledá pod středem a 12 cm kolem, takže se nepropadne mezerou mezi stupni otevřeného schodiště.
   Podlaha 1NP (mřížka) drží jen mimo budovu, kde pod vámi žádný model není; v budově se po schodech nebo
@@ -177,7 +179,10 @@ ve všech úrovních:
 - Prostorové bloky: velké neprůhledné skupiny barvy jsou rozdělené na bloky (celé prvky podle středu, hrana
   od 4 m, nejvýš ~240 bloků na model). Bloky mimo zorné pole se nekreslí a neprůhledné plochy se kreslí
   od nejbližších, takže zakryté plochy za zdmi se nevybarvují. Obraz je stejný; výběr, barvy, dveře a kolize
-  pracují dál se sloučenou geometrií. Pro porovnání výkonu jde vypnout v nastavení VR („Jen v zorném poli“).
+  pracují dál se sloučenou geometrií. Pro porovnání výkonu jde vypnout v nastavení VR („Jen zorné pole“).
+- Ladění výkonu (nastavení VR): položky úrovně zobrazení jdou přepnout jednotlivě – stíny v koutech, rubové
+  strany, průhledné sklo, ostré okraje zorného pole, rozlišení 100 / 80 % (platí po dalším vstupu do VR).
+  Na jednom místě se tak dá změřit, co kolik snímků stojí. Přepnutí úrovně ruční změny zruší.
 - Na počítači se scéna kreslí jen po změně (pohyb kamery, výběr, model); ve VR každý snímek.
 - Řádek „Výkon“ v panelu ukazuje snímky za sekundu, trojúhelníky a počet vykreslení.
 

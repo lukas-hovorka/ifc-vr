@@ -11,7 +11,7 @@ const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 const TABS = [['models', 'Modely'], ['map', 'Mapa'], ['measure', 'Měření'], ['settings', 'Nastavení']];
 
 const W = 1024;          // šířka canvasu v px
-const H = 1960;          // výška canvasu v px
+const H = 2300;          // výška canvasu v px
 const S = 2.6;           // zvětšení tokenů (px EBC → px canvasu)
 const WIDTH_M = 0.26;    // šířka panelu v metrech
 const FPS_W = 330;       // šířka ukazatele snímků za sekundu v px canvasu
@@ -145,6 +145,7 @@ export class VRPanel {
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
+    if (r.key.startsWith('tw:')) { this.onTweak?.(r.key.slice(3)); return true; }
     if (r.key === 'blocks') { this.onBlocks?.(this.state.blocks === false); return true; }
     if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
     if (r.key.startsWith('turn:')) { this.onTurnSpeed?.(r.key.slice(5)); return true; }
@@ -313,15 +314,33 @@ export class VRPanel {
   /** Nastavení: úroveň zobrazení, pohyb, Mojžíšův mód. */
   drawSettings(y, { pad, gap, inner, bh, half, third }) {
     const st = this.state;
+    const c0 = this.ctx;
     // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
     y += this.sectionLabel('Zobrazení', pad, y);
     QUALITY_KEYS.forEach(([key, label], i) => {
       this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
     });
-    y += bh + gap;
-    // kreslení po prostorových blocích (vynechá části mimo zorné pole); přepínač pro porovnání výkonu
-    this.button('blocks', 'Jen v zorném poli', pad, y, half, { active: st.blocks !== false });
     y += bh + pad;
+
+    // ladění výkonu: jednotlivé položky úrovně zvlášť (přepnutí úrovně je vrátí), kreslení po blocích
+    const look = st.look || {};
+    y += this.sectionLabel('Ladění výkonu', pad, y);
+    const rows = [
+      [['tw:ao', 'Stíny v koutech', look.ao !== false], ['tw:doubleSide', 'Rubové strany', !!look.doubleSide], ['tw:glass', 'Průhledné sklo', !!look.glass]],
+      [['tw:foveation', 'Ostré okraje', look.foveation === 0], ['tw:xrScale', 'Rozlišení 100 %', look.xrScale !== 0.8], ['blocks', 'Jen zorné pole', st.blocks !== false]],
+    ];
+    for (const row of rows) {
+      row.forEach(([key, label, active], i) => this.button(key, label, pad + i * (third + gap), y, third, { active }));
+      y += bh + gap;
+    }
+    c0.textBaseline = 'top';
+    c0.font = font('typography.small', S);
+    c0.fillStyle = t('color.text.secondary');
+    for (const line of this.wrap('Rozlišení platí po dalším vstupu do VR. Přepnutí úrovně ruční změny zruší.', inner)) {
+      c0.fillText(line, pad, y);
+      y += 17 * S;
+    }
+    y += pad - gap;
 
     // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře jen ve skutečném měřítku
     // (v maketě se v modelu nechodí); plynulé otáčení platí v obou

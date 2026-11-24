@@ -93,6 +93,8 @@ export class Viewer {
     this.quality = QUALITY.balanced;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatio));
     this.renderer.xr.enabled = true;
+    /** ručně přepnuté položky úrovně zobrazení (setTweak) */
+    this.tweak = {};
     /** prostorové bloky (addBlocks): kreslit jen bloky v zorném poli */
     this.blocksOn = true;
     // neprůhledné od nejbližších bez ohledu na materiál (výchozí řazení napřed seskupí podle materiálu):
@@ -194,9 +196,25 @@ export class Viewer {
     this.resize();
   }
 
+  /** Úroveň zobrazení s ručně přepnutými položkami (ladění výkonu ve VR). */
+  get look() { return { ...this.quality, ...this.tweak }; }
+
+  /**
+   * Ruční přepnutí jedné položky úrovně (ao, doubleSide, glass, foveation, xrScale), aby šlo v brýlích
+   * změřit, co kolik stojí. Přepnutí úrovně ruční změny zruší. xrScale platí od dalšího vstupu do VR.
+   */
+  setTweak(key, value) {
+    this.tweak = { ...this.tweak, [key]: value };
+    this.renderer.xr.setFoveation(this.look.foveation);
+    const done = new Set();
+    for (const m of this.meshes) if (!done.has(m.material)) { done.add(m.material); this.applyMaterialQuality(m.material); }
+    this.invalidate();
+  }
+
   /** Nastaví úroveň zobrazení (prvek QUALITY). Rozlišení v brýlích platí od dalšího vstupu do VR. */
   setQuality(q) {
     this.quality = q;
+    this.tweak = {};
     if (!this.renderer.xr.isPresenting) {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
       this.resize();
@@ -214,23 +232,24 @@ export class Viewer {
    */
   applyMaterialQuality(mat) {
     const a = mat.userData.alpha ?? 1;
-    const transparent = a < 0.99 && this.quality.glass;
+    const q = this.look;
+    const transparent = a < 0.99 && q.glass;
     mat.transparent = transparent;
     mat.opacity = transparent ? Math.max(a, 0.15) : 1;
     mat.depthWrite = !transparent;
-    mat.side = transparent || this.quality.doubleSide ? THREE.DoubleSide : THREE.FrontSide;
+    mat.side = transparent || q.doubleSide ? THREE.DoubleSide : THREE.FrontSide;
     // zastínění koutů (ve Výkonu ne); posun hloubky jen s obrysovými hranami (jinak zbytečná práce)
-    if (mat.userData.ao) setDefine(mat, 'AO_VOLUME', this.quality.ao !== false);
+    if (mat.userData.ao) setDefine(mat, 'AO_VOLUME', q.ao !== false);
     mat.polygonOffset = this.edgesOn;
     mat.needsUpdate = true;
   }
 
   /** Rozlišení XR vrstvy pro novou relaci (volat před renderer.xr.setSession). */
   prepareXR(session) {
-    let f = this.quality.xrScale;
+    let f = this.look.xrScale;
     if (f === 'native') f = globalThis.XRWebGLLayer?.getNativeFramebufferScaleFactor?.(session) || 1.2;
     this.renderer.xr.setFramebufferScaleFactor(Math.min(Math.max(f, 0.5), 2));
-    this.renderer.xr.setFoveation(this.quality.foveation);
+    this.renderer.xr.setFoveation(this.look.foveation);
   }
 
   /**

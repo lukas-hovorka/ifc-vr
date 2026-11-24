@@ -972,8 +972,21 @@ function setQuality(key) {
   viewer.setQuality(q);
   for (const b of ui.quality.querySelectorAll('[data-q]')) b.setAttribute('aria-pressed', String(b.dataset.q === key));
   ui.qualityHint.textContent = q.hint;
-  xr.panel.set({ quality: key });
+  xr.panel.set({ quality: key, look: viewer.look });
 }
+// ladění výkonu ve VR: jednotlivé položky úrovně zvlášť (zapnuto ↔ vypnuto)
+const TWEAK_TOGGLE = {
+  ao: (q) => q.ao === false,
+  doubleSide: (q) => !q.doubleSide,
+  glass: (q) => !q.glass,
+  foveation: (q) => (q.foveation === 0 ? 1 : 0),
+  xrScale: (q) => (q.xrScale === 0.8 ? 1 : 0.8),
+};
+xr.panel.onTweak = (key) => {
+  if (!TWEAK_TOGGLE[key]) return;
+  viewer.setTweak(key, TWEAK_TOGGLE[key](viewer.look));
+  xr.panel.set({ look: viewer.look });
+};
 for (const [key, q] of Object.entries(QUALITY)) {
   const b = document.createElement('button');
   b.className = 'ebc-filter';

@@ -10,6 +10,7 @@ import { t } from './theme.js';
 const UP = new THREE.Vector3(0, 1, 0);
 const MOVE_SPEED = 2.0;      // m/s chůze
 const FLY_SPEED = 1.5;       // m/s nahoru/dolů
+const FLY_CLEAR = 0.15;      // odstup hlavy od stropu a nohou od podlahy při letu s kolizemi
 const SNAP = THREE.MathUtils.degToRad(30);
 const TURN_SPEED = THREE.MathUtils.degToRad(100);   // plynulé otáčení: výchozí rad/s při plném vychýlení páčky (volba na panelu)
 const ARC_SPEED = 9;         // počáteční rychlost paraboly teleportu m/s
@@ -352,11 +353,35 @@ export class XRControls {
    */
   collideMove(move) {
     const head = this.v.camera.getWorldPosition(new THREE.Vector3());
-    const feet = this.v.rig.position.y;
+    let feet = this.v.rig.position.y;
+    // bez gravitace stojí nohy tam, kam je dal start nebo teleport (výška podlaží z IFC bývá pod povrchem
+    // podlahy): kvádr těla by vězel v podlaze a kolize s nízkými prvky (zábradlí) by nefungovala.
+    // Proto skutečná podlaha pod hlavou, když je výš než nohy (nejvýš o výšku schodu).
+    if (!this.gravity) {
+      const h = this.bodyHit(head, new THREE.Vector3(0, -1, 0), Math.max(head.y - feet, 0) + 0.05);
+      if (h && h.point.y > feet && h.point.y <= feet + STEP_UP) feet = h.point.y;
+    }
     this.bodyR = this.inDoorway(head) ? DOOR_RADIUS : BODY_RADIUS;
     this.sweepMove(move, head, feet);
     this.keepClear(move, head, feet);
     this.blockBody(move, head, feet);
+  }
+
+  /**
+   * Kolize při letu nahoru / dolů (bez gravitace): hlava se zastaví pod stropem, nohy na podlaze.
+   * Paprsek svisle z hlavy (nahoru) nebo kousek nad nohama (dolů); vrátí povolený posun.
+   */
+  collideFly(dy) {
+    if (this.v.moses.active) return dy;
+    const head = this.v.camera.getWorldPosition(new THREE.Vector3());
+    if (dy > 0) {
+      const h = this.bodyHit(head, new THREE.Vector3(0, 1, 0), dy + FLY_CLEAR);
+      return h ? Math.max(0, Math.min(dy, h.distance - FLY_CLEAR)) : dy;
+    }
+    const feet = this.v.rig.position.y;
+    const o = new THREE.Vector3(head.x, feet + FLY_CLEAR, head.z);
+    const h = this.bodyHit(o, new THREE.Vector3(0, -1, 0), -dy + FLY_CLEAR);
+    return h ? Math.min(0, Math.max(dy, -(h.distance - FLY_CLEAR))) : dy;
   }
 
   /** Je hlava u dveří s křídly (půdorysně do DOOR_ZONE od zavřeného křídla, ve výšce dveří)? */
@@ -656,8 +681,11 @@ export class XRControls {
       }
       // nahoru / dolů jen bez gravitace (s ní se chodí po schodech)
       if (!this.gravity || this.mode !== 'full') {
-        if (rgp.buttons[4]?.pressed) v.rig.position.y += FLY_SPEED * dt;
-        if (rgp.buttons[5]?.pressed) v.rig.position.y -= FLY_SPEED * dt;
+        let dy = 0;
+        if (rgp.buttons[4]?.pressed) dy += FLY_SPEED * dt;
+        if (rgp.buttons[5]?.pressed) dy -= FLY_SPEED * dt;
+        if (dy && this.collide && this.mode === 'full') dy = this.collideFly(dy);
+        v.rig.position.y += dy;
       }
     } else {
       this.arc.visible = this.marker.visible = false;
