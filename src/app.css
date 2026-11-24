@@ -57,6 +57,9 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .map-card__plan { display: block; width: 100%; height: auto; cursor: crosshair; border: var(--ebc-border-width-thin) solid var(--ebc-color-border-default); }
 #map-hint.is-error { color: var(--ebc-color-text-error); }
 .side__quality .ebc-filter { flex: 1; }
+.side__toggle { font-size: var(--ebc-font-size-md); }
+.measure-list > li { display: flex; flex-direction: column; border-bottom: 1px solid var(--ebc-color-list-separator); border-radius: 0; }
+.measure-list .measure-list__detail { color: var(--ebc-color-text-secondary); font-size: var(--ebc-font-size-sm); }
 
 /* nabídka barvy: paleta EBC, vlastní barva (výběr prohlížeče), původní barvy z IFC */
 .color-menu { position: fixed; z-index: 10; box-shadow: var(--ebc-shadow-dialog); }

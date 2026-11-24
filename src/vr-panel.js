@@ -4,10 +4,11 @@ import { t, px, font } from './theme.js';
 import { QUALITY } from './quality.js';
 import { drawUser } from './map.js';
 import { MOSES_RADII } from './moses.js';
+import { MEASURE_TOOLS } from './measure.js';
 
 const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
 /** Záložky panelu: klíč, popisek */
-const TABS = [['models', 'Modely'], ['map', 'Mapa'], ['settings', 'Nastavení']];
+const TABS = [['models', 'Modely'], ['map', 'Mapa'], ['measure', 'Měření'], ['settings', 'Nastavení']];
 
 const W = 1024;          // šířka canvasu v px
 const H = 1960;          // výška canvasu v px
@@ -130,6 +131,8 @@ export class VRPanel {
       this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
       return true;
     }
+    if (r.key.startsWith('mt:')) { this.onMeasure?.('tool', r.key.slice(3)); return true; }
+    if (r.key === 'msnap' || r.key === 'mundo' || r.key === 'mclear') { this.onMeasure?.(r.key.slice(1)); return true; }
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
@@ -192,6 +195,62 @@ export class VRPanel {
     let s = text;
     while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1);
     return s + '…';
+  }
+
+  /** Text zalomený do šířky maxW (aktuálním písmem). */
+  wrap(text, maxW) {
+    const c = this.ctx;
+    const out = [];
+    let line = '';
+    for (const w of text.split(' ')) {
+      const next = line ? `${line} ${w}` : w;
+      if (line && c.measureText(next).width > maxW) { out.push(line); line = w; } else line = next;
+    }
+    if (line) out.push(line);
+    return out;
+  }
+
+  /** Měření: nástroj, přichycení, zpět / smazat, nápověda a výsledky (nejnovější nahoře). */
+  drawMeasure(y, bottom, { pad, gap, inner, bh, third, q4 }) {
+    const c = this.ctx;
+    const st = this.state;
+    MEASURE_TOOLS.forEach(([key, label], i) => {
+      this.button(`mt:${key}`, label, pad + i * (q4 + gap), y, q4, { active: st.mTool === key });
+    });
+    y += bh + gap;
+    this.button('msnap', 'Přichytit k rohům', pad, y, third, { active: !!st.mSnap });
+    this.button('mundo', 'Zpět', pad + third + gap, y, third, { disabled: !st.mCanUndo });
+    this.button('mclear', 'Smazat vše', pad + 2 * (third + gap), y, third, { disabled: !st.mItems?.length });
+    y += bh + gap * 1.5;
+    c.textBaseline = 'top';
+    c.font = font('typography.small', S);
+    c.fillStyle = t('color.text.secondary');
+    for (const line of this.wrap(st.mHint || '', inner)) { c.fillText(line, pad, y); y += 17 * S; }
+    y += gap;
+    const items = st.mItems || [];
+    const rowH = 23 * S;
+    const rowH2 = 40 * S;
+    for (const it of items) {
+      const h = it.detail ? rowH2 : rowH;
+      if (y + h > bottom) break;
+      c.strokeStyle = t('color.list.separator');
+      c.lineWidth = 1;
+      c.beginPath(); c.moveTo(pad, y); c.lineTo(pad + inner, y); c.stroke();
+      c.font = font('typography.body', S);
+      c.fillStyle = t('color.text.primary');
+      c.fillText(this.ellipsize(it.title, inner), pad, y + 4 * S);
+      if (it.detail) {
+        c.font = font('typography.small', S);
+        c.fillStyle = t('color.text.secondary');
+        c.fillText(this.ellipsize(it.detail, inner), pad, y + 22 * S);
+      }
+      y += h;
+    }
+    if (!items.length) {
+      c.font = font('typography.body', S);
+      c.fillStyle = t('color.text.secondary');
+      c.fillText('Zatím nic není změřeno.', pad, y + 4 * S);
+    }
   }
 
   /** Nastavení: úroveň zobrazení, pohyb, Mojžíšův mód. */
@@ -417,7 +476,7 @@ export class VRPanel {
     const box = { pad, gap, inner, bh, half, third, q4 };
     if (st.tab === 'models') this.drawModels(y, infoBottom, box);
     else if (st.tab === 'map') this.drawMap(y, infoBottom, box);
-    else if (st.tab === 'measure') this.drawMeasure?.(y, infoBottom, box);
+    else if (st.tab === 'measure') this.drawMeasure(y, infoBottom, box);
     else if (st.tab === 'settings') this.drawSettings(y, box);
 
     // nápověda k ovládání

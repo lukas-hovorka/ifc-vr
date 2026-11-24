@@ -265,6 +265,8 @@ export class XRControls {
     if (p) { p.click(); return; }
     this.setRayFrom(entry.controller);
     const hit = this.v.intersect(this.raycaster);
+    // záložka Měření: spoušť měří místo výběru prvku
+    if (this.measure?.active) { this.measure.click(this.measure.pick(hit), this.raycaster.ray.origin.clone()); return; }
     this.onSelect(hit ? hit.id : null);
   }
 
@@ -639,11 +641,21 @@ export class XRControls {
       }
       for (const p of [this.panel, this.info]) if (p !== best?.p) p.clearHover();
       if (best) { best.p.pointAt(best.ph.uv); onPanel = true; dist = best.ph.distance; this.cursor.position.copy(best.ph.point); }
+      let hit = null;
       if (!onPanel) {
-        const hit = v.intersect(this.raycaster);
+        hit = v.intersect(this.raycaster);
         if (hit) { dist = hit.distance; this.cursor.position.copy(hit.point); }
         this.cursor.visible = !!hit;
       } else this.cursor.visible = true;
+      // náhled měření (štítek se překresluje nejvýš 15× za sekundu)
+      const m = this.measure;
+      if (m?.active) {
+        this.measureT = (this.measureT || 0) + dt;
+        if (this.measureT > 1 / 15) {
+          this.measureT = 0;
+          m.hover(m.pick(hit), this.raycaster.ray.origin.clone());
+        }
+      }
       this.ray.scale.z = dist;
       this.ray.visible = true;
     } else {

@@ -36,6 +36,15 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
   a otočné dveře se neotevírají. Volba **Dveře: Automaticky** (na počítači i ve VR, pamatuje se) otevře dveře,
   když k nim přijdete na 2 m, a zavře je, když odejdete dál než 3 m; dveře otevřené nebo zavřené ručně nechá.
+- **měření** (na počítači sekce *Měření*, ve VR záložka **Měření** – dokud je otevřená, spoušť měří místo výběru prvku):
+  - *Laser* (jen VR): vzdálenost od ovladače k místu, kam míříte, je vidět průběžně u kurzoru; spoušť ji uloží,
+  - *Dva body*: vzdálenost a její složky ΔX, ΔY, ΔZ,
+  - *Bod*: souřadnice X, Y, Z v systému IFC (Z nahoru, skutečné souřadnice včetně posunu modelu, např. S-JTSK),
+  - *Úhel*: ze tří bodů (bod na rameni, vrchol, bod na druhém rameni).
+
+  Body se přichytí k rohu prvku, když jste blízko (volba *Přichytit k rohům*, zeleně = přichyceno). V maketě se
+  měří skutečné rozměry. Výsledky jsou u čar v modelu (štítky drží stálou velikost) a v seznamu; *Zpět* odebere
+  poslední bod nebo měření, na počítači Esc zruší rozpracované body. Odebráním všech modelů se měření smažou.
 
 Technika: [three.js](https://threejs.org), [web-ifc](https://github.com/ThatOpen/engine_web-ifc) ve Web Workeru
 (geometrie se slučuje podle barvy kvůli výkonu brýlí), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)
@@ -107,7 +116,7 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | X | skrýt / zobrazit panel |
 | Y | přepnout Skutečné 1:1 / Maketa |
 
-Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Mapa** a **Nastavení**
+Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Mapa**, **Měření** a **Nastavení**
 (úroveň zobrazení, pohyb, Mojžíšův mód). Volby pohybu se pamatují, výchozí je vypnuto:
 
 - **Kolize** – chůze páčkou se zastaví před zdí (hlava 40 cm od zdi, i při chůzi podél zdi), podél zdi se klouže.

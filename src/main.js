@@ -5,6 +5,7 @@ import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
 import { PlanMap, drawUser } from './map.js';
 import { MOSES_RADII } from './moses.js';
+import { Measure } from './measure.js';
 
 // ---------- workery ----------
 // Každý model má vlastní worker (načtení i vlastnosti prvků): rozpracované načítání jde zrušit ukončením
@@ -147,7 +148,10 @@ const xr = new XRControls(viewer, {
     else select(id);
   },
 });
-viewer.onBeforeRender = (dt) => xr.update(dt);
+/** měření (na počítači sekce Měření, ve VR záložka Měření) */
+const measure = new Measure(viewer);
+xr.measure = measure;
+viewer.onBeforeRender = (dt) => { xr.update(dt); measure.tick(viewer.camera); };
 /** půdorysy podlaží pro mapu */
 const planMap = new PlanMap(viewer);
 
@@ -416,7 +420,7 @@ async function removeModel(modelID) {
   if (viewer.selectedId?.model === modelID) select(null);
   viewer.removeModel(modelID);
   closeModel(modelID);
-  if (!loaded.length) { viewer.clear(); dropState(''); }
+  if (!loaded.length) { viewer.clear(); measure.clear(); dropState(''); }
   setStatus(`Model ${m.name} je odebraný.`);
   updateLoaded();
 }
@@ -428,6 +432,7 @@ async function removeAll() {
   select(null);
   for (const m of all) viewer.removeModel(m.modelID);
   viewer.clear();
+  measure.clear();
   dropState('');
   setStatus('Všechny modely jsou odebrané.');
   updateLoaded();
@@ -755,10 +760,27 @@ canvas.addEventListener('pointerup', (e) => {
   if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
   down = null;
   const hit = viewer.pickAtScreen(e.clientX, e.clientY);
+  if (measure.active) { measure.click(measure.pick(hit)); return; }
   select(hit ? hit.id : null);
+});
+// měření: náhled pod kurzorem (jednou za snímek)
+let hoverFrame = 0, hoverAt = null;
+canvas.addEventListener('pointermove', (e) => {
+  if (!measure.active || viewer.renderer.xr.isPresenting) return;
+  hoverAt = { x: e.clientX, y: e.clientY };
+  if (hoverFrame) return;
+  hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = 0;
+    measure.hover(measure.pick(viewer.pickAtScreen(hoverAt.x, hoverAt.y)));
+  });
+});
+canvas.addEventListener('pointerleave', () => { if (measure.active && !viewer.renderer.xr.isPresenting) measure.hover(null); });
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && measure.active && measure.pending.length) measure.clearPending();
 });
 // dvojklik na dveře: otevřít / zavřít
 canvas.addEventListener('dblclick', (e) => {
+  if (measure.active) return;
   const hit = viewer.pickAtScreen(e.clientX, e.clientY);
   if (hit?.id && viewer.isDoor(hit.id)) toggleDoor(hit.id);
 });
@@ -778,7 +800,7 @@ function updateXRButtons() {
     : !navigator.xr ? 'Prohlížeč nepodporuje WebXR. Otevřete stránku v prohlížeči Meta Quest.'
     : !hasModel ? 'Nejdřív načtěte model.' : '';
   // bez modelu nemají akce, výběr prvku ani úroveň zobrazení smysl – skryté; co zařízení neumí, se neukazuje
-  ui.actions.hidden = ui.infoSec.hidden = ui.qualitySec.hidden = !hasModel;
+  ui.actions.hidden = ui.infoSec.hidden = ui.qualitySec.hidden = $('measure-sec').hidden = !hasModel;
   ui.btnMap.hidden = !planMap.levels().length;
   ui.btnMap.disabled = !hasModel;
   ui.btnMap.title = 'Půdorys podlaží, klepnutím přesun na místo';
@@ -808,7 +830,13 @@ async function enterXR(mode) {
     await viewer.renderer.xr.setSession(session);
     viewer.applyFrameRate();
     xr.start(ar);
-    session.addEventListener('end', () => xr.end(), { once: true });
+    // ve VR se měří v záložce Měření, po návratu podle volby na počítači
+    measure.setActive(xr.panel.state.tab === 'measure');
+    session.addEventListener('end', () => {
+      xr.end();
+      if (measure.tool === 'laser') measure.setTool('dist');
+      measure.setActive(measureDesktop);
+    }, { once: true });
   } catch (err) {
     setStatus(`Režim ${ar ? 'AR' : 'VR'} nejde spustit: ${err.message}`, 'error');
   }
@@ -912,7 +940,10 @@ viewer.controls.addEventListener('change', () => {
 
 // mapa na panelu ve VR
 xr.panel.mapSource = { levels: () => planMap.levels(), plan: (l) => planMap.plan(l), user: mapUser };
-xr.panel.onTab = (tab) => { if (tab === 'map') xr.panel.state.mapLevel = currentLevel(); };
+xr.panel.onTab = (tab) => {
+  if (tab === 'map') xr.panel.state.mapLevel = currentLevel();
+  if (viewer.renderer.xr.isPresenting) measure.setActive(tab === 'measure');
+};
 xr.panel.onMap = (i, u, v) => {
   const level = planMap.levels()[i];
   const { x, z } = planMap.toModel(u, v);
@@ -1020,3 +1051,61 @@ if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Offline režim není dostupný', e));
 }
+
+// ---------- měření ----------
+/** na počítači: měří se, když je zvolený nástroj (Vyp. = výběr prvků kliknutím) */
+let measureDesktop = false;
+const DESKTOP_TOOLS = [['', 'Vyp.', 'Kliknutí vybírá prvky'], ['dist', 'Dva body', 'Vzdálenost dvou bodů a její složky ΔX, ΔY, ΔZ'],
+  ['point', 'Bod', 'Souřadnice X, Y, Z bodu v systému IFC'], ['angle', 'Úhel', 'Úhel ze tří bodů (vrchol uprostřed)']];
+for (const [tool, label, title] of DESKTOP_TOOLS) {
+  const b = document.createElement('button');
+  b.className = 'ebc-filter';
+  b.type = 'button';
+  b.dataset.tool = tool;
+  b.textContent = label;
+  b.title = title;
+  b.addEventListener('click', () => {
+    measureDesktop = !!tool;
+    if (tool) measure.setTool(tool);
+    measure.setActive(measureDesktop);
+  });
+  $('measure-tools').appendChild(b);
+}
+$('measure-snap').addEventListener('change', (e) => { measure.snap = e.target.checked; syncMeasure(); });
+$('measure-undo').addEventListener('click', (e) => { e.preventDefault(); measure.undo(); });
+$('measure-clear').addEventListener('click', (e) => { e.preventDefault(); measure.clear(); });
+xr.panel.onMeasure = (op, arg) => {
+  if (op === 'tool') measure.setTool(arg);
+  else if (op === 'snap') { measure.snap = !measure.snap; syncMeasure(); }
+  else if (op === 'undo') measure.undo();
+  else if (op === 'clear') measure.clear();
+};
+
+function syncMeasure() {
+  const items = measure.items.slice().reverse().map((it) => measure.summary(it));
+  const canUndo = !!(measure.items.length || measure.pending.length);
+  xr.panel.set({ mTool: measure.tool, mSnap: measure.snap, mHint: measure.hint, mItems: items, mCanUndo: canUndo });
+  const on = measure.active && !viewer.renderer.xr.isPresenting;
+  for (const b of $('measure-tools').querySelectorAll('[data-tool]')) {
+    b.setAttribute('aria-pressed', String(on ? b.dataset.tool === measure.tool : (!measureDesktop && b.dataset.tool === '')));
+  }
+  $('measure-snap').checked = measure.snap;
+  $('measure-hint').textContent = measureDesktop ? `${measure.hint} Esc zruší rozpracované body.` : 'Zvolte nástroj, pak klikejte do modelu.';
+  $('measure-list').replaceChildren(...items.map(({ title, detail }) => {
+    const li = document.createElement('li');
+    const a = document.createElement('span');
+    a.textContent = title;
+    li.append(a);
+    if (detail) {
+      const d = document.createElement('span');
+      d.className = 'measure-list__detail';
+      d.textContent = detail;
+      li.append(d);
+    }
+    return li;
+  }));
+  $('measure-actions').hidden = !canUndo;
+  canvas.style.cursor = on ? 'crosshair' : '';
+}
+measure.onChange = syncMeasure;
+syncMeasure();
