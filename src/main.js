@@ -1011,7 +1011,7 @@ function setMotion(name, on) {
   xr.panel.set({ [name]: on });
 }
 xr.panel.onMotion = setMotion;
-for (const name of ['collide', 'gravity']) setMotion(name, loadFlag(name));
+for (const name of ['collide', 'gravity', 'smoothTurn']) setMotion(name, loadFlag(name));
 setQuality(loadQuality());
 
 if (import.meta.env.DEV) window.__ifcvr = { viewer, xr, select, planMap };

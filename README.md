@@ -98,7 +98,7 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 |---|---|
 | Levá páčka | chůze ve směru pohledu |
 | Pravá páčka dopředu | teleport (oranžová parabola, červená = nejde přistát), pustit = skok |
-| Pravá páčka do stran | otočení o 30° |
+| Pravá páčka do stran | otočení o 30° (nebo plynule, volba v Nastavení) |
 | A / B | nahoru / dolů (jen bez gravitace) |
 | Pravá spoušť | vybrat prvek, stisknout tlačítko na panelu |
 | Pravá spoušť znovu na vybraný prvek | zrušit výběr; u dveří otevřít / zavřít |
@@ -107,13 +107,17 @@ z úložiště brýlí přes drop zónu. Pak **Vstoupit do VR** nebo **Vstoupit 
 | X | skrýt / zobrazit panel |
 | Y | přepnout Skutečné 1:1 / Maketa |
 
-Řádek **Pohyb** na panelu (volby se pamatují, výchozí vypnuto):
+Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Mapa** a **Nastavení**
+(úroveň zobrazení, pohyb, Mojžíšův mód). Volby pohybu se pamatují, výchozí je vypnuto:
 
-- **Kolize** – chůze páčkou se zastaví před zdí (40 cm, i při chůzi podél zdi), podél zdi se klouže. Hlídá se v úrovni kolen
-  (nad schodem) a hrudníku; teleport a fyzická chůze po místnosti kolize nehlídají.
+- **Kolize** – chůze páčkou se zastaví před zdí (hlava 40 cm od zdi, i při chůzi podél zdi), podél zdi se klouže.
+  Zdi hlídají paprsky v úrovni hrudníku a očí, nižší a tenké prvky (zábradlí, sloupky, parapety) kvádr těla
+  od výšky schodu po oči (zastaví asi 30 cm před nimi). Teleport a fyzická chůze po místnosti kolize nehlídají.
 - **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
-  mimo budovu drží podlaha 1NP. A / B (nahoru / dolů) jsou s gravitací vypnuté.
-- **Aut. dveře** – stejné jako volba Dveře: Automaticky na počítači.
+  podlaha se hledá pod středem a 12 cm kolem, takže se nepropadne mezerou mezi stupni otevřeného schodiště.
+  Mimo budovu drží podlaha 1NP. A / B (nahoru / dolů) jsou s gravitací vypnuté.
+- **Automatické dveře** – stejné jako volba Dveře: Automaticky na počítači.
+- **Plynulé otáčení** – pravá páčka do stran otáčí plynule (rychlost podle vychýlení), jinak po 30°.
 
 ## Build na statický hosting
 

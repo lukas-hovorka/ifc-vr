@@ -6,6 +6,8 @@ import { drawUser } from './map.js';
 import { MOSES_RADII } from './moses.js';
 
 const QUALITY_KEYS = Object.entries(QUALITY).map(([k, q]) => [k, q.label]);
+/** Záložky panelu: klíč, popisek */
+const TABS = [['models', 'Modely'], ['map', 'Mapa'], ['settings', 'Nastavení']];
 
 const W = 1024;          // šířka canvasu v px
 const H = 1960;          // výška canvasu v px
@@ -122,7 +124,7 @@ export class VRPanel {
     const pg = this.state.tab === 'models' ? 'mpage' : 'page';
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
-    if (r.key === 'tab-models' || r.key === 'tab-map') { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
+    if (r.key.startsWith('tab-')) { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
     if (r.key.startsWith('lvl:')) { this.state.mapLevel = +r.key.slice(4); this.state.mapMsg = ''; this.draw(); return true; }
     if (r.key === 'map') {
       this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
@@ -132,7 +134,7 @@ export class VRPanel {
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
     if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
-    if (r.key === 'collide' || r.key === 'gravity') { this.onMotion?.(r.key, !this.state[r.key]); return true; }
+    if (r.key === 'collide' || r.key === 'gravity' || r.key === 'smoothTurn') { this.onMotion?.(r.key, !this.state[r.key]); return true; }
     const m = /^(vis|col|del):(\d+)$/.exec(r.key);
     if (m) { this.onModel?.(m[1], +m[2]); return true; }
     this.actions[r.key]?.();
@@ -190,6 +192,33 @@ export class VRPanel {
     let s = text;
     while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1);
     return s + '…';
+  }
+
+  /** Nastavení: úroveň zobrazení, pohyb, Mojžíšův mód. */
+  drawSettings(y, { pad, gap, inner, bh, half, third }) {
+    const st = this.state;
+    // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
+    y += this.sectionLabel('Zobrazení', pad, y);
+    QUALITY_KEYS.forEach(([key, label], i) => {
+      this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
+    });
+    y += bh + pad;
+
+    // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře, plynulé otáčení – přepínače
+    y += this.sectionLabel('Pohyb', pad, y);
+    this.button('collide', 'Kolize', pad, y, half, { active: !!st.collide });
+    this.button('gravity', 'Gravitace', pad + half + gap, y, half, { active: !!st.gravity });
+    y += bh + gap;
+    this.button('doors', 'Automatické dveře', pad, y, half, { active: !!st.autoDoors });
+    this.button('smoothTurn', 'Plynulé otáčení', pad + half + gap, y, half, { active: !!st.smoothTurn });
+    y += bh + pad;
+
+    // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)
+    y += this.sectionLabel('Mojžíšův mód', pad, y);
+    const w = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
+    MOSES_RADII.forEach((r, i) => {
+      this.button(`moses:${r}`, r ? `${r} m` : 'Vyp.', pad + i * (w + gap), y, w, { active: (st.moses || 0) === r });
+    });
   }
 
   /** Mapa: tlačítka podlaží, půdorys se značkou uživatele; klepnutím do půdorysu přesun. */
@@ -357,61 +386,39 @@ export class VRPanel {
 
     let y = headH + pad;
 
-    // v záložce Mapa jen záložky a mapa (víc místa pro půdorys)
+    // nahoře měřítko a pohled (v záložce Mapa ne – víc místa pro půdorys), pod nimi záložky
     const third = (inner - 2 * gap) / 3;
     const half = (inner - gap) / 2;
+    const q4 = (inner - 3 * gap) / 4;
     const bh = (px('size.button.padding-y') * 2 + 18) * S;
     if (st.tab !== 'map') {
-      // měřítko
       y += this.sectionLabel('Měřítko', pad, y);
       this.button('mode-full', 'Skutečné 1:1', pad, y, half, { active: st.mode === 'full' });
       this.button('mode-mini', 'Maketa', pad + half + gap, y, half, { active: st.mode === 'mini' });
       y += bh + pad;
 
-      // akce
       y += this.sectionLabel('Pohled', pad, y);
-      const q4 = (inner - 3 * gap) / 4;
       this.button('reset', 'Na začátek', pad, y, q4);
       this.button('grid', 'Mřížka', pad + q4 + gap, y, q4, { active: st.grid !== false });
       this.button('edges', 'Hrany', pad + 2 * (q4 + gap), y, q4, { active: !!st.edges });
       this.button('exit', 'Ukončit VR', pad + 3 * (q4 + gap), y, q4);
       y += bh + pad;
-
-      // úroveň zobrazení (rozlišení se změní až po dalším vstupu do VR)
-      y += this.sectionLabel('Zobrazení', pad, y);
-      QUALITY_KEYS.forEach(([key, label], i) => {
-        this.button(`q:${key}`, label, pad + i * (third + gap), y, third, { active: st.quality === key });
-      });
-      y += bh + pad;
-
-      // pohyb: kolize se zdmi, gravitace (schody, rampy), automatické dveře – přepínače
-      y += this.sectionLabel('Pohyb', pad, y);
-      this.button('collide', 'Kolize', pad, y, third, { active: !!st.collide });
-      this.button('gravity', 'Gravitace', pad + third + gap, y, third, { active: !!st.gravity });
-      this.button('doors', 'Aut. dveře', pad + 2 * (third + gap), y, third, { active: !!st.autoDoors });
-      y += bh + pad;
-
-      // Mojžíšův mód: model kolem uživatele ustoupí (poloměr výřezu)
-      y += this.sectionLabel('Mojžíšův mód', pad, y);
-      const quarter = (inner - (MOSES_RADII.length - 1) * gap) / MOSES_RADII.length;
-      MOSES_RADII.forEach((r, i) => {
-        this.button(`moses:${r}`, r ? `${r} m` : 'Vyp.', pad + i * (quarter + gap), y, quarter, { active: (st.moses || 0) === r });
-      });
-      y += bh + pad;
     }
-    // záložky: modely / mapa (vybraný prvek má vlastní panel vpravo)
-    this.button('tab-models', `Modely (${st.models.length})`, pad, y, half, { active: st.tab === 'models' });
-    this.button('tab-map', 'Mapa', pad + half + gap, y, half, { active: st.tab === 'map' });
+    // záložky (vybraný prvek má vlastní panel vpravo)
+    const tw = (inner - (TABS.length - 1) * gap) / TABS.length;
+    TABS.forEach(([key, label], i) => {
+      const text = key === 'models' ? `${label} (${st.models.length})` : label;
+      this.button(`tab-${key}`, text, pad + i * (tw + gap), y, tw, { active: st.tab === key });
+    });
     y += bh + gap * 1.5;
     const footerH = HELP.length * 17 * S + pad * 1.4;
     const infoBottom = H - footerH - pad;
     c.textBaseline = 'top';
-    const lineH = 20 * S;
-    if (st.tab === 'models') {
-      this.drawModels(y, infoBottom, { pad, gap, inner, bh });
-    } else if (st.tab === 'map') {
-      this.drawMap(y, infoBottom, { pad, gap, inner, bh });
-    }
+    const box = { pad, gap, inner, bh, half, third, q4 };
+    if (st.tab === 'models') this.drawModels(y, infoBottom, box);
+    else if (st.tab === 'map') this.drawMap(y, infoBottom, box);
+    else if (st.tab === 'measure') this.drawMeasure?.(y, infoBottom, box);
+    else if (st.tab === 'settings') this.drawSettings(y, box);
 
     // nápověda k ovládání
     let fy = H - footerH;
