@@ -218,6 +218,16 @@ export class Measure {
     this.changed();
   }
 
+  /** Smaže jedno hotové měření (id ze seznamu). */
+  remove(id) {
+    const i = this.items.findIndex((it) => it.id === id);
+    if (i < 0) return;
+    const [it] = this.items.splice(i, 1);
+    this.disposeGroup(it.group);
+    this.v.invalidate();
+    this.changed();
+  }
+
   clear() {
     for (const it of this.items) this.disposeGroup(it.group);
     this.items = [];
@@ -249,6 +259,10 @@ export class Measure {
 
   /** Řádek do seznamu výsledků. */
   summary(it) {
+    return { id: it.id, ...this.summaryText(it) };
+  }
+
+  summaryText(it) {
     if (it.type === 'dist') {
       const d = this.delta(it.pts[0], it.pts[1]);
       return { title: `Vzdálenost ${fmtLen(it.pts[0].distanceTo(it.pts[1]))}`, detail: `ΔX ${nf(d.x, 3)} · ΔY ${nf(d.y, 3)} · ΔZ ${nf(d.z, 3)} m` };
@@ -285,7 +299,8 @@ export class Measure {
       this.label(group, p[1], [fmtAng(this.angle(p))]);
     }
     this.root.add(group);
-    this.items.push({ type, pts: p, group });
+    this.nextId = (this.nextId || 0) + 1;
+    this.items.push({ id: this.nextId, type, pts: p, group });
     this.changed();
     this.v.invalidate();
   }

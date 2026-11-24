@@ -1078,6 +1078,7 @@ xr.panel.onMeasure = (op, arg) => {
   if (op === 'tool') measure.setTool(arg);
   else if (op === 'snap') { measure.snap = !measure.snap; syncMeasure(); }
   else if (op === 'undo') measure.undo();
+  else if (op === 'remove') measure.remove(arg);
   else if (op === 'clear') measure.clear();
 };
 
@@ -1091,17 +1092,27 @@ function syncMeasure() {
   }
   $('measure-snap').checked = measure.snap;
   $('measure-hint').textContent = measureDesktop ? `${measure.hint} Esc zruší rozpracované body.` : 'Zvolte nástroj, pak klikejte do modelu.';
-  $('measure-list').replaceChildren(...items.map(({ title, detail }) => {
+  $('measure-list').replaceChildren(...items.map(({ id, title, detail }) => {
     const li = document.createElement('li');
+    const text = document.createElement('div');
+    text.className = 'measure-list__text';
     const a = document.createElement('span');
     a.textContent = title;
-    li.append(a);
+    text.append(a);
     if (detail) {
       const d = document.createElement('span');
       d.className = 'measure-list__detail';
       d.textContent = detail;
-      li.append(d);
+      text.append(d);
     }
+    const x = document.createElement('button');
+    x.className = 'ebc-icon-btn model-file__remove';
+    x.type = 'button';
+    x.title = `Smazat: ${title}`;
+    x.setAttribute('aria-label', x.title);
+    x.innerHTML = '<svg class="ebc-icon"><use href="./ebc/ebc-icons.svg#ebc-icon-window-close"/></svg>';
+    x.addEventListener('click', () => measure.remove(id));
+    li.append(text, x);
     return li;
   }));
   $('measure-actions').hidden = !canUndo;

@@ -122,7 +122,7 @@ export class VRPanel {
   click() {
     const r = this.regions.find((r) => r.key === this.hover);
     if (!r) return false;
-    const pg = this.state.tab === 'models' ? 'mpage' : 'page';
+    const pg = this.state.tab === 'models' ? 'mpage' : this.state.tab === 'measure' ? 'mlpage' : 'page';
     if (r.key === 'next') { this.state[pg]++; this.draw(); return true; }
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
     if (r.key.startsWith('tab-')) { this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
@@ -132,6 +132,7 @@ export class VRPanel {
       return true;
     }
     if (r.key.startsWith('mt:')) { this.onMeasure?.('tool', r.key.slice(3)); return true; }
+    if (r.key.startsWith('mdel:')) { this.onMeasure?.('remove', +r.key.slice(5)); return true; }
     if (r.key === 'msnap' || r.key === 'mundo' || r.key === 'mclear') { this.onMeasure?.(r.key.slice(1)); return true; }
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
@@ -228,24 +229,32 @@ export class VRPanel {
     for (const line of this.wrap(st.mHint || '', inner)) { c.fillText(line, pad, y); y += 17 * S; }
     y += gap;
     const items = st.mItems || [];
-    const rowH = 23 * S;
-    const rowH2 = 40 * S;
-    for (const it of items) {
-      const h = it.detail ? rowH2 : rowH;
-      if (y + h > bottom) break;
+    // řádky: text vlevo, vpravo tlačítko Smazat (jen toto měření); co se nevejde, je na dalších stránkách
+    const rowH = 46 * S;
+    const delW = inner * 0.22;
+    const textW = inner - delW - gap;
+    let perPage = Math.max(1, Math.floor((bottom - y) / rowH));
+    if (items.length > perPage) perPage = Math.max(1, Math.floor((bottom - y - bh - gap) / rowH));
+    const pages = Math.max(1, Math.ceil(items.length / perPage));
+    st.mlpage = Math.min(st.mlpage || 0, pages - 1);
+    for (const it of items.slice(st.mlpage * perPage, (st.mlpage + 1) * perPage)) {
       c.strokeStyle = t('color.list.separator');
       c.lineWidth = 1;
       c.beginPath(); c.moveTo(pad, y); c.lineTo(pad + inner, y); c.stroke();
+      c.textBaseline = 'top';
       c.font = font('typography.body', S);
       c.fillStyle = t('color.text.primary');
-      c.fillText(this.ellipsize(it.title, inner), pad, y + 4 * S);
+      const ty = it.detail ? y + 4 * S : y + 13 * S;
+      c.fillText(this.ellipsize(it.title, textW), pad, ty);
       if (it.detail) {
         c.font = font('typography.small', S);
         c.fillStyle = t('color.text.secondary');
-        c.fillText(this.ellipsize(it.detail, inner), pad, y + 22 * S);
+        c.fillText(this.ellipsize(it.detail, textW), pad, y + 24 * S);
       }
-      y += h;
+      this.button(`mdel:${it.id}`, 'Smazat', pad + inner - delW, y + (rowH - bh) / 2, delW);
+      y += rowH;
     }
+    if (pages > 1) this.pager(bottom - bh, st.mlpage, pages, { pad, gap, inner, bh });
     if (!items.length) {
       c.font = font('typography.body', S);
       c.fillStyle = t('color.text.secondary');
