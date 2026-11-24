@@ -154,6 +154,7 @@ export class XRControls {
     this.v.camera.position.set(0, 0, 0);
     this.v.camera.quaternion.identity();
     this.mode = passthrough ? 'mini' : 'full';
+    this.fullPose = null;
     // pozice se nastaví až v prvním snímku, kdy je známá poloha hlavy
     this.needsInitialPose = 3;   // pár snímků, než je známá poloha hlavy
   }
@@ -184,14 +185,23 @@ export class XRControls {
   }
 
   setMode(mode) {
+    if (mode === this.mode) return;
     this.releaseAll();
+    // z 1:1 do makety si zapamatovat, kde uživatel stál; po návratu do 1:1 tam zase bude
+    const rig = this.v.rig;
+    if (this.mode === 'full') this.fullPose = { pos: rig.position.clone(), quat: rig.quaternion.clone() };
+    const back = mode === 'full' ? this.fullPose : null;
     this.mode = mode;
     this.panel.set({ mode });
-    this.resetPose();
+    this.fallSpeed = 0;
+    this.resetPose(back);
   }
 
-  /** Výchozí pozice: 1:1 – před jižní stranou modelu čelem k němu; maketa – model před uživatelem. */
-  resetPose() {
+  /**
+   * Výchozí pozice: 1:1 – před jižní stranou modelu čelem k němu; maketa – model před uživatelem.
+   * `back` = poloha rigu v 1:1 před přepnutím do makety (návrat na stejné místo).
+   */
+  resetPose(back = null) {
     const v = this.v;
     const bb = v.bbox;
     if (bb.isEmpty()) return;
@@ -200,11 +210,16 @@ export class XRControls {
     const cam = v.camera;
     if (this.mode === 'full') {
       this.resetModelTransform();
-      v.rig.quaternion.identity();
-      // kamera má v rigu offset (poloha hlavy v místnosti) – kompenzovat ho v rovině
-      const off = this.tmp.v.copy(cam.position); off.y = 0;
-      // na podlaze 1NP (ne na spodku modelu – u budovy se suterénem by uživatel stál pod terénem)
-      v.rig.position.set(c.x - off.x, v.floorY, bb.max.z + 3 - off.z);
+      if (back) {
+        v.rig.position.copy(back.pos);
+        v.rig.quaternion.copy(back.quat);
+      } else {
+        v.rig.quaternion.identity();
+        // kamera má v rigu offset (poloha hlavy v místnosti) – kompenzovat ho v rovině
+        const off = this.tmp.v.copy(cam.position); off.y = 0;
+        // na podlaze 1NP (ne na spodku modelu – u budovy se suterénem by uživatel stál pod terénem)
+        v.rig.position.set(c.x - off.x, v.floorY, bb.max.z + 3 - off.z);
+      }
     } else {
       v.rig.position.y = 0;
       v.rig.updateMatrixWorld(true);

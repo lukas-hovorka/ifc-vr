@@ -14,7 +14,7 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   budovou na podlaze **1NP** (podlaží s názvem 1NP / 1.NP / přízemí, jinak s výškou nejblíž ±0,00), ve stejné
   výšce je mřížka a podlaha pro teleport mimo budovu
 - **Maketa / AR**: zmenšený model před vámi, v AR na stole v reálném prostoru (průhled kamer Quest 3);
-  úchopem se posouvá, oběma rukama otáčí a zvětšuje
+  úchopem se posouvá, oběma rukama otáčí a zvětšuje; po návratu z makety do 1:1 jste tam, kde jste ji zapnuli
 - výběr prvku a jeho vlastnosti (typ, podlaží, GlobalId, sady vlastností a množství); ve VR na vlastní kartě
   vpravo vedle panelu u levé ruky (karty se drží za levý dolní roh). Výběr se zruší tlačítkem *Zrušit výběr*
   nebo spouští znovu na vybraný prvek
