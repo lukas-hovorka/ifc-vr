@@ -250,6 +250,8 @@ function buildGeometry(modelID) {
 
   const buckets = new Map();
   let elements = 0;
+  /** počet zrcadlených dílů (obrácené pořadí vrcholů) */
+  let mirrored = 0;
   /** obrysové hrany celého modelu (úsečky, 6 čísel na úsečku) */
   const edges = new Grow(Float32Array);
   // dveře: díly se před zápisem roztřídí na zárubeň a křídla (křídla jdou v prohlížeči otočit)
@@ -284,7 +286,17 @@ function buildGeometry(modelID) {
     const start = b.idx.n;
     b.idx.reserve(inds.length);
     const I = b.idx.a;
-    for (let i = 0; i < inds.length; i++) I[start + i] = inds[i] + base;
+    // zrcadlené umístění (záporný determinant, např. kolena a odbočky potrubí): pořadí vrcholů se obrátí,
+    // jinak by byl díl rubem ven (osvětlený zevnitř, s kreslením jen předních stran by zmizel)
+    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+    if (det < 0) {
+      mirrored++;
+      for (let i = 0; i < inds.length; i += 3) {
+        I[start + i] = inds[i] + base;
+        I[start + i + 1] = inds[i + 2] + base;
+        I[start + i + 2] = inds[i + 1] + base;
+      }
+    } else for (let i = 0; i < inds.length; i++) I[start + i] = inds[i] + base;
     b.idx.n += inds.length;
     // rozsahy indexů po prvcích: [start, počet, expressID]
     const r = b.ranges, L = r.length;
@@ -415,7 +427,7 @@ function buildGeometry(modelID) {
   }
   const edgeArr = edges.result();
   transfer.push(edgeArr.buffer);
-  return { meta: { schema, elements, simplified, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer };
+  return { meta: { schema, elements, simplified, mirrored, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer };
 }
 
 /**
