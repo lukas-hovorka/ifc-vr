@@ -14,6 +14,8 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const FAR_APART = 10000;
 /** Otevření dveří (90°) trvá tolik sekund. */
 const DOOR_TIME = 0.8;
+/** Automatické dveře se otevírají rychleji (ať jsou otevřené, než k nim uživatel dojde). */
+const AUTO_DOOR_TIME = 0.4;
 /** Automatické dveře: otevřou se, když je uživatel blíž než tolik metrů od středu dveří (půdorysně)… */
 const AUTO_OPEN = 2.0;
 /** …a zavřou se, až se vzdálí víc než tolik metrů. */
@@ -611,6 +613,7 @@ export class Viewer {
     d.open = !d.open;
     d.auto = auto && d.open;
     d.hold = !auto;
+    d.time = auto ? AUTO_DOOR_TIME : DOOR_TIME;
     if (d.open) {
       const cam = this.camera; // ve VR poloha hlavy ve světě (i s posunem rigu)
       group.updateWorldMatrix(true, false);
@@ -746,8 +749,8 @@ export class Viewer {
   /** Otáčení křídel (volá se každý snímek). */
   tickDoors(dt) {
     if (!this.swinging.size) return;
-    const step = (Math.PI / 2) * (dt / DOOR_TIME);
     for (const d of this.swinging) {
+      const step = (Math.PI / 2) * (dt / (d.time || DOOR_TIME));
       let moving = false;
       for (const l of d.leaves) {
         if (!l.pivot) continue;

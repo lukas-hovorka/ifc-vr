@@ -123,12 +123,14 @@ Panel ve VR má nahoře měřítko a pohled, pod nimi záložky **Modely**, **Ma
 
 - **Kolize** – chůze páčkou se zastaví před zdí (hlava 40 cm od zdi, i při chůzi podél zdi), podél zdi se klouže.
   Zdi hlídají paprsky v úrovni hrudníku a očí, nižší a tenké prvky (zábradlí, sloupky, parapety) kvádr těla
-  od výšky schodu po oči (zastaví asi 30 cm před nimi). Teleport a fyzická chůze po místnosti kolize nehlídají.
+  od výšky schodu po oči (zastaví asi 30 cm před nimi). U dveří s křídly (do 80 cm od křídla) je odstup jen 15 cm,
+  aby se dveřmi prošlo i mimo jejich střed. Teleport a fyzická chůze po místnosti kolize nehlídají.
 - **Gravitace** – na schod nebo rampu do 45 cm se vystoupá, z vyššího místa se padá (ze schodů, do otvoru);
   podlaha se hledá pod středem a 12 cm kolem, takže se nepropadne mezerou mezi stupni otevřeného schodiště.
   Podlaha 1NP (mřížka) drží jen mimo budovu, kde pod vámi žádný model není; v budově se po schodech nebo
   otvorem dostanete i do suterénu (platí i pro teleport). A / B (nahoru / dolů) jsou s gravitací vypnuté.
-- **Automatické dveře** – stejné jako volba Dveře: Automaticky na počítači.
+- **Automatické dveře** – stejné jako volba Dveře: Automaticky na počítači; automaticky se dveře otevřou za 0,4 s
+  (ručně za 0,8 s), ať jsou otevřené dřív, než k nim dojdete.
 - **Plynulé otáčení** – pravá páčka do stran otáčí plynule (rychlost podle vychýlení), jinak po 30°.
 
 ## Build na statický hosting

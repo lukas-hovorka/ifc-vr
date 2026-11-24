@@ -24,8 +24,10 @@ const BODY_RADIUS = 0.4;
 const BODY_HEIGHTS = [1.2];
 /** Šikmý pohyb ke zdi: paprsek se hledá až do BODY_RADIUS / MIN_COS (úhel ke zdi asi do 80°). */
 const MIN_COS = 0.17;
-/** Tělo jako kvádr (zábradlí, sloupky – mezi paprsky by prošly): polovina šířky, od výšky schodu po oči. */
-const BODY_HALF = BODY_RADIUS * 0.7;
+/** Tělo jako kvádr (zábradlí, sloupky – mezi paprsky by prošly): polovina šířky = 0,7 × odstup, od výšky schodu po oči. */
+/** Ve dveřích (u dveří s křídly, do DOOR_ZONE m od křídla) menší odstup, ať se projde i úzkými dveřmi bez zadrhávání. */
+const DOOR_RADIUS = 0.15;
+const DOOR_ZONE = 0.8;
 /** Gravitace: podlaha se hledá pod středem a v tolika m kolem (otevřené schody, mezery mezi stupni). */
 const FOOT = 0.12;
 /** Gravitace: nejvyšší schod, na který se vystoupá (m), rychlost výstupu (m/s), zrychlení pádu (m/s²). */
@@ -61,6 +63,7 @@ export class XRControls {
     this.boxInv = new THREE.Matrix4();
     this.bodyRay = new THREE.Raycaster();
     this.bodyRay.firstHitOnly = true;
+    this.bodyR = BODY_RADIUS;
 
     const r = viewer.renderer;
     const factory = new XRControllerModelFactory();
@@ -348,9 +351,26 @@ export class XRControls {
   collideMove(move) {
     const head = this.v.camera.getWorldPosition(new THREE.Vector3());
     const feet = this.v.rig.position.y;
+    this.bodyR = this.inDoorway(head) ? DOOR_RADIUS : BODY_RADIUS;
     this.sweepMove(move, head, feet);
     this.keepClear(move, head, feet);
     this.blockBody(move, head, feet);
+  }
+
+  /** Je hlava u dveří s křídly (půdorysně do DOOR_ZONE od zavřeného křídla, ve výšce dveří)? */
+  inDoorway(head) {
+    const v = this.v;
+    const p = new THREE.Vector3();
+    for (const d of v.doors.values()) {
+      if (!d.box) continue;
+      const g = v.groups.get(d.model);
+      if (!g) continue;
+      g.worldToLocal(p.copy(head));
+      const b = d.box;
+      if (p.y < b.min.y || p.y > b.max.y + 0.6) continue;
+      if (p.x > b.min.x - DOOR_ZONE && p.x < b.max.x + DOOR_ZONE && p.z > b.min.z - DOOR_ZONE && p.z < b.max.z + DOOR_ZONE) return true;
+    }
+    return false;
   }
 
   /**
@@ -371,8 +391,8 @@ export class XRControls {
 
   bodyInside(x, z, headY, feet) {
     const b = this.bodyBox;
-    b.min.set(x - BODY_HALF, feet + STEP_UP, z - BODY_HALF);
-    b.max.set(x + BODY_HALF, Math.max(headY, feet + 1.3), z + BODY_HALF);
+    b.min.set(x - (this.bodyR * 0.7), feet + STEP_UP, z - (this.bodyR * 0.7));
+    b.max.set(x + (this.bodyR * 0.7), Math.max(headY, feet + 1.3), z + (this.bodyR * 0.7));
     for (const m of this.v.visibleMeshes) {
       const tree = m.geometry.boundsTree;
       if (!tree) continue;
@@ -382,16 +402,16 @@ export class XRControls {
     return false;
   }
 
-  /** Pohyb proti zdi: zastavit v odstupu BODY_RADIUS, zbytek pohybu podél zdi. */
+  /** Pohyb proti zdi: zastavit v odstupu this.bodyR, zbytek pohybu podél zdi. */
   sweepMove(move, head, feet) {
     for (let pass = 0; pass < 2; pass++) {
       const len = move.length();
       if (len < 1e-6) return;
       const dir = move.clone().divideScalar(len);
-      // nejbližší zeď ze všech výšek: kolik se dá jít, než bude hlava blíž ke zdi než BODY_RADIUS (kolmo)
+      // nejbližší zeď ze všech výšek: kolik se dá jít, než bude hlava blíž ke zdi než this.bodyR (kolmo)
       let go = len, n = null;
       for (const hgt of [...BODY_HEIGHTS, Math.max(head.y - feet, 1.3)]) {
-        const h = this.bodyHit(new THREE.Vector3(head.x, feet + hgt, head.z), dir, len + BODY_RADIUS / MIN_COS);
+        const h = this.bodyHit(new THREE.Vector3(head.x, feet + hgt, head.z), dir, len + this.bodyR / MIN_COS);
         if (!h?.face) continue;
         // normála zdi ve vodorovné rovině, otočená proti pohybu
         const hn = h.face.normal.clone().transformDirection(h.object.matrixWorld);
@@ -400,7 +420,7 @@ export class XRControls {
         hn.normalize();
         if (hn.dot(dir) > 0) hn.negate();
         const cos = Math.max(-hn.dot(dir), MIN_COS);
-        const g = Math.max(0, h.distance - BODY_RADIUS / cos);
+        const g = Math.max(0, h.distance - this.bodyR / cos);
         if (g < go) { go = g; n = hn; }
       }
       if (!n) return;
@@ -415,7 +435,7 @@ export class XRControls {
 
   /**
    * Odstup do stran: při chůzi skoro podél zdi ji paprsek ve směru pohybu nenajde včas. Z cílového místa se
-   * proto hledá zeď všemi směry do BODY_RADIUS a ruší se ta část pohybu, která by k ní hlavu přiblížila.
+   * proto hledá zeď všemi směry do this.bodyR a ruší se ta část pohybu, která by k ní hlavu přiblížila.
    */
   keepClear(move, head, feet) {
     if (move.lengthSq() < 1e-12) return;
@@ -425,7 +445,7 @@ export class XRControls {
       for (let a = 0; a < 8; a++) {
         const ang = a * Math.PI / 4;
         dir.set(Math.cos(ang), 0, Math.sin(ang));
-        const h = this.bodyHit(o, dir, BODY_RADIUS);
+        const h = this.bodyHit(o, dir, this.bodyR);
         if (!h?.face) continue;
         const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
         n.y = 0;
@@ -433,7 +453,7 @@ export class XRControls {
         n.normalize();
         if (n.dot(dir) > 0) n.negate();
         const into = -move.dot(n);              // kolik se pohyb přibližuje ke zdi
-        const gap = BODY_RADIUS - h.distance * -n.dot(dir);   // o kolik je hlava blíž, než má
+        const gap = this.bodyR - h.distance * -n.dot(dir);   // o kolik je hlava blíž, než má
         if (into > 0 && gap > 0) {
           move.addScaledVector(n, Math.min(into, gap));
           o.set(head.x + move.x, feet + hgt, head.z + move.z);
