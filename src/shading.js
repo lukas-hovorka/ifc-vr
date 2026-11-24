@@ -198,12 +198,36 @@ export function aoVolume(buckets, onProgress) {
   // 3) volné kostky uzavřené mezi plochami (uvnitř silné zdi nebo desky) se berou jako plné: jsou skoro
   // černé a do bodů u spoje by se přimíchaly; kostky s plochou nemají vlastní hodnotu (G = 0)
   const enclosedAt = Math.round(ENCLOSED * 255);
-  const out = new Uint8Array(N * 2);
+  const R = new Uint16Array(N), G = new Uint16Array(N);
   for (let i = 0; i < N; i++) {
     if (solid[i] || (near[i] && data[i] >= enclosedAt)) continue;
-    out[i * 2] = data[i];
-    out[i * 2 + 1] = 255;
+    R[i] = data[i];
+    G[i] = 255;
+  }
+  // 4) vyhlazení [1 2 1] v každé ose (R i G zvlášť, poměr R / G zůstane průměrem volných kostek):
+  // 16 paprsků na kostku dává mezi sousedy skoky, které by byly na plochách vidět jako skvrny
+  blur121(R, nx, ny, nz);
+  blur121(G, nx, ny, nz);
+  const out = new Uint8Array(N * 2);
+  for (let i = 0; i < N; i++) {
+    out[i * 2] = Math.round(R[i] / 64);
+    out[i * 2 + 1] = Math.round(G[i] / 64);
   }
   onProgress?.(1);
   return { data: out, dims: [nx, ny, nz], origin: [x0, y0, z0], cell: cs };
+}
+
+/** Vyhlazení mřížky jádrem [1 2 1] postupně v ose x, y, z (hodnoty se zvětší 64×). Okraj mřížky se opakuje. */
+function blur121(A, nx, ny, nz) {
+  const line = new Uint16Array(Math.max(nx, ny, nz));
+  const pass = (n, count, at) => {
+    for (let k = 0; k < count; k++) {
+      for (let i = 0; i < n; i++) line[i] = A[at(k, i)];
+      for (let i = 0; i < n; i++) A[at(k, i)] = line[i > 0 ? i - 1 : 0] + 2 * line[i] + line[i < n - 1 ? i + 1 : n - 1];
+    }
+  };
+  const nxy = nx * ny;
+  pass(nx, ny * nz, (k, i) => k * nx + i);
+  pass(ny, nx * nz, (k, i) => (Math.floor(k / nx) * ny + i) * nx + (k % nx));
+  pass(nz, nxy, (k, i) => i * nxy + k);
 }

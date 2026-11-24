@@ -27,7 +27,8 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   nejde vybrat ani na to teleportovat
 - **zastínění koutů**: spoje zdí s podlahou a stropem, kouty a prostor pod nábytkem jsou tmavší (prostor
   působí plastičtěji). Do bodu plochy se promítá jen volný prostor před ní, takže stín z vnitřku zdi ani z koutu
-  za zdí neprosvítá a spoje jsou plynule tmavší bez světlých lemů. Počítá se jednou
+  za zdí neprosvítá, spoje jsou plynule tmavší bez světlých lemů a hodnoty jsou vyhlazené (bez pruhů a skvrn
+  na rovných plochách). Počítá se jednou
   při načtení (u velkého modelu asi sekundu) a ukládá se do mezipaměti
 - **obrysové hrany** (volba *Obrysové hrany* na počítači, tlačítko **Hrany** ve VR; výchozí vypnuto): tmavé
   čáry na hranách prvků jako na výkrese, zdi a stropy stejné barvy se od sebe lépe odliší
