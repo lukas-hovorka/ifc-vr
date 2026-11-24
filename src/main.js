@@ -990,7 +990,7 @@ function setAutoDoors(on) {
   for (const b of $('autodoors').querySelectorAll('[data-on]')) b.setAttribute('aria-pressed', String((b.dataset.on === '1') === on));
   xr.panel.set({ autoDoors: on });
 }
-for (const [on, label, title] of [[false, 'Ručně', 'Dveře se otevírají spouští nebo dvojklikem'], [true, 'Automaticky', 'Dveře se otevřou, když k nim přijdete na 1 m']]) {
+for (const [on, label, title] of [[false, 'Ručně', 'Dveře se otevírají spouští nebo dvojklikem'], [true, 'Automaticky', 'Dveře se otevřou, když k nim přijdete na 2 m']]) {
   const b = document.createElement('button');
   b.className = 'ebc-filter';
   b.type = 'button';

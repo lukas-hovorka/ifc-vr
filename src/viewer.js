@@ -15,9 +15,9 @@ const FAR_APART = 10000;
 /** Otevření dveří (90°) trvá tolik sekund. */
 const DOOR_TIME = 0.8;
 /** Automatické dveře: otevřou se, když je uživatel blíž než tolik metrů od středu dveří (půdorysně)… */
-const AUTO_OPEN = 1.0;
+const AUTO_OPEN = 2.0;
 /** …a zavřou se, až se vzdálí víc než tolik metrů. */
-const AUTO_CLOSE = 2.0;
+const AUTO_CLOSE = 3.0;
 /**
  * Mřížka leží kousek pod podlahou 1NP: ve stejné výšce by prosvítala přes podlahové desky (z-fighting)
  * a desky s horní hranou o pár mm níž by překryla úplně.

@@ -35,7 +35,7 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   nebo tlačítko *Otevřít dveře* u vybraného prvku, ve VR spoušť znovu na už vybrané dveře. Křídlo se pozná
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
   a otočné dveře se neotevírají. Volba **Dveře: Automaticky** (na počítači i ve VR, pamatuje se) otevře dveře,
-  když k nim přijdete na 1 m, a zavře je, když odejdete dál než 2 m; dveře otevřené nebo zavřené ručně nechá.
+  když k nim přijdete na 2 m, a zavře je, když odejdete dál než 3 m; dveře otevřené nebo zavřené ručně nechá.
 
 Technika: [three.js](https://threejs.org), [web-ifc](https://github.com/ThatOpen/engine_web-ifc) ve Web Workeru
 (geometrie se slučuje podle barvy kvůli výkonu brýlí), [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)
