@@ -26,27 +26,59 @@ export class PlanMap {
   invalidate() { this.version++; this.cache.clear(); }
 
   /**
-   * Podlaží všech modelů sloučená podle výšky: [{ name, label (krátký popisek), y }] odspodu. Když se
-   * podlaží v různých modelech jmenuje jinak, popisek uvede všechny názvy („4. NP/4NP“).
+   * Podlaží všech modelů sloučená podle výšky: [{ name (všechny názvy), label (krátký popisek), y }] odspodu.
+   * Popisek bez společné předpony a přípony v modelu („SO101_1NP“, „SO101_2NP“ → „1NP“, „2NP“); když se
+   * podlaží v modelech jmenuje různě, vezme se nejčastější název. Stejné popisky různých výšek (podlaží
+   * dvou objektů) dostanou předponu objektu, nebo výšku. Podlaží mimo geometrii (výškový bod „0,000 m n. m.“) se vynechají.
    */
   levels() {
-    const storeys = this.v.storeys;
-    // krátké popisky po modelech: bez společné přípony („1.NP_SO-101“, „2.NP_SO-101“ → „1.NP“, „2.NP“)
+    const bb = this.v.bbox;
+    const storeys = this.v.storeys.filter((st) => bb.isEmpty() || (st.y >= bb.min.y - 1 && st.y <= bb.max.y));
     const short = new Map();
+    const prefix = new Map(); // odříznutá předpona bez oddělovače („SO101“): odliší stejná podlaží dvou objektů
     for (const model of new Set(storeys.map((st) => st.model))) {
       const names = [...new Set(storeys.filter((st) => st.model === model).map((st) => st.name))];
-      const cut = commonSuffix(names);
-      for (const n of names) short.set(`${model}|${n}`, cut ? n.slice(0, n.length - cut).trim() : n);
+      const pre = commonPrefix(names), suf = commonSuffix(names.map((n) => n.slice(pre)));
+      for (const n of names) {
+        short.set(`${model}|${n}`, n.slice(pre, n.length - suf).trim() || n);
+        prefix.set(`${model}|${n}`, n.slice(0, pre).replace(/[_\s\-–]+$/, ''));
+      }
+    }
+    // jeden model jen s jedním podlažím nemá s čím porovnat: zkrátit podle popisků ostatních („SO101_1NP“ → „1NP“)
+    const known = new Set(short.values());
+    for (const [k, label] of short) {
+      const m = label.match(/^.+?[_\s\-–]+(.+)$/);
+      if (m && known.has(m[1]) && !known.has(label)) { short.set(k, m[1]); prefix.set(k, label.slice(0, -m[1].length).replace(/[_\s\-–]+$/, '')); }
     }
     const out = [];
     for (const st of storeys) {
       let l = out.find((x) => Math.abs(x.y - st.y) < SAME_LEVEL);
-      if (!l) out.push((l = { names: [], labels: [], y: st.y }));
+      if (!l) out.push((l = { names: [], counts: new Map(), pre: new Map(), y: st.y, elev: st.elev }));
       const label = short.get(`${st.model}|${st.name}`);
+      const pr = prefix.get(`${st.model}|${st.name}`);
+      if (pr) (l.pre.get(label) || l.pre.set(label, new Set()).get(label)).add(pr);
       if (!l.names.includes(st.name)) l.names.push(st.name);
-      if (!l.labels.includes(label)) l.labels.push(label);
+      l.counts.set(label, (l.counts.get(label) || 0) + 1);
+      // výška vůči ±0,00 budovy (modely území mají výšky nad mořem)
+      if (st.elev != null && (l.elev == null || Math.abs(st.elev) < Math.abs(l.elev))) l.elev = st.elev;
     }
-    return out.map((l) => ({ name: l.names.join(' / '), label: l.labels.join('/'), y: l.y }));
+    const res = out.map((l) => {
+      const label = [...l.counts].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)[0][0];
+      const pre = l.pre.get(label);
+      return { name: l.names.join(' / '), label, y: l.y, elev: l.elev, pre: pre?.size === 1 ? [...pre][0] : '' };
+    });
+    // stejný popisek u víc výšek: předpona objektu („SO102 1PP“), když je u každé jiná, jinak výška
+    const groups = new Map();
+    for (const l of res) (groups.get(l.label) || groups.set(l.label, []).get(l.label)).push(l);
+    for (const g of groups.values()) {
+      if (g.length < 2) continue;
+      const byPre = g.every((l) => l.pre) && new Set(g.map((l) => l.pre)).size === g.length;
+      for (const l of g) {
+        if (byPre) l.label = `${l.pre} ${l.label}`;
+        else if (l.elev != null) l.label = `${l.label} ${fmtElev(l.elev)}`;
+      }
+    }
+    return res.map(({ name, label, y }) => ({ name, label, y }));
   }
 
   /** Index podlaží, na kterém je výška y (podlaha pod ní). */
@@ -183,6 +215,23 @@ export class PlanMap {
  * Délka společné přípony názvů podlaží, kterou jde odříznout (od oddělovače „_“, mezery, „-“, „(“),
  * nebo 0. Jeden název nic neodřízne.
  */
+/** Délka společné předpony názvů, jen do oddělovače („SO101_“); u jednoho názvu 0. */
+function commonPrefix(names) {
+  if (names.length < 2) return 0;
+  const ref = names[0];
+  let k = 0;
+  while (k < ref.length && names.every((n) => n.length > k && n[k] === ref[k])) k++;
+  const m = ref.slice(0, k).match(/^.*[_\s\-–]/);
+  const n = m ? m[0].length : 0;
+  return n && names.every((x) => x.length > n) ? n : 0;
+}
+
+/** Výška podlaží v m se znaménkem a čárkou („+4,50“, „−3,90“). */
+function fmtElev(e) {
+  const r = Math.round(e * 100) / 100;
+  return `${r < 0 ? '−' : '+'}${Math.abs(r).toFixed(2).replace('.', ',')}`;
+}
+
 function commonSuffix(names) {
   if (names.length < 2) return 0;
   const ref = names[0];

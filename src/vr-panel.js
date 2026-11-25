@@ -403,7 +403,17 @@ export class VRPanel {
       c.font = font('typography.button', S);
       this.button(`lvl:${i}`, this.ellipsize(levels[i].label, bw - 16 * S), pad + col * (bw + gap), y + row * (bh + gap), bw, { active: i === st.mapLevel });
     });
-    y += Math.ceil(levels.length / perRow) * (bh + gap) + gap;
+    y += Math.ceil(levels.length / perRow) * (bh + gap);
+    // úplné názvy zvoleného podlaží (popisek na tlačítku je zkrácený)
+    const lv = levels[st.mapLevel];
+    if (lv.name !== lv.label) {
+      c.font = font('typography.small', S);
+      c.textBaseline = 'top';
+      c.fillStyle = t('color.text.secondary');
+      c.fillText(this.ellipsizeMiddle(lv.name, inner), pad, y);
+      y += 22 * S;
+    }
+    y += gap;
     // zpráva dole
     const msgH = 22 * S;
     const areaH = bottom - y - msgH;

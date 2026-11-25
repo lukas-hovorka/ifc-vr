@@ -829,6 +829,8 @@ function updateXRButtons() {
 detectXR();
 navigator.xr?.addEventListener?.('devicechange', detectXR);
 
+/** přední rovina ořezu ve VR / AR v m (panel na ruce bývá 20–30 cm od očí) */
+const XR_NEAR = 0.02;
 async function enterXR(mode) {
   const ar = mode === 'immersive-ar';
   try {
@@ -838,6 +840,11 @@ async function enterXR(mode) {
     });
     viewer.renderer.xr.setReferenceSpaceType('local-floor');
     viewer.prepareXR(session);
+    // přední rovina ořezu: na počítači se řídí velikostí scény (u rozlehlých staveb i přes 1 m), ve VR by
+    // pak mizel panel na ruce a ruce u obličeje; three ji předá relaci jako depthNear
+    const near = viewer.camera.near;
+    viewer.camera.near = XR_NEAR;
+    viewer.camera.updateProjectionMatrix();
     await viewer.renderer.xr.setSession(session);
     viewer.applyFrameRate();
     xr.start(ar);
@@ -845,6 +852,8 @@ async function enterXR(mode) {
     measure.setActive(xr.panel.state.tab === 'measure');
     session.addEventListener('end', () => {
       xr.end();
+      viewer.camera.near = near;
+      viewer.camera.updateProjectionMatrix();
       if (measure.tool === 'laser') measure.setTool('dist');
       measure.setActive(measureDesktop);
     }, { once: true });
