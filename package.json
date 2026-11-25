@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "meshoptimizer": "^1.2.0",
     "three": "^0.187.0",
     "three-mesh-bvh": "^0.9.18",
     "web-ifc": "^0.0.78"

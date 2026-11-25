@@ -5,7 +5,7 @@
 
 /** 2: křídla dveří (meta.doors, klíč skupiny barvy), 3: výšky podlaží (meta.storeys), 4: oprava výšek podlaží,
  * 5: zastínění koutů (ao: prostorová mřížka) a obrysové hrany (edges) */
-const VERSION = 11; // 10: prostorové bloky (blocks), 11: vlastnosti prvků (props)
+const VERSION = 12; // 10: prostorové bloky (blocks), 11: vlastnosti prvků (props), 12: zjednodušení těžkých dílů
 const DB = 'ifc-vr-geometrie';
 /** Mezipaměť nesmí zabrat víc než tolik z místa, které prohlížeč stránce dovolí. */
 const SHARE = 0.5;

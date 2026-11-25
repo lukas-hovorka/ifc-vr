@@ -176,8 +176,14 @@ ve všech úrovních:
   každý model otevřený v paměti WASM (nejméně 133 MB i u malého souboru, u 0,5 GB souboru kolem 1 GB) –
   např. 13 profesí jedné stavby (0,95 GB IFC) by zabralo přes 3 GB a prohlížeč v brýlích by stránku ukončil.
   Zůstává jen geometrie (u stejných 13 modelů 9,3 mil. trojúhelníků, asi 1 GB).
+- Zjednodušení těžkých dílů: díly od výrobců (venkovní jednotky, zařizovací předměty, armatury) mívají
+  trojúhelníky o hraně kolem milimetru a statisíce na kus. Při načtení se díly od 100 trojúhelníků zjednoduší
+  (meshoptimizer) tak, aby se tvar nikde neodchýlil o víc než 2 mm; okraje ploch zůstávají na místě (díly na sebe
+  navazují bez mezer) a normály se dopočítají znovu (rovné plochy ploché, hrany přes 35° ostré). U 30 modelů
+  jedné stavby (0,7 GB IFC) to dalo 8,8 mil. trojúhelníků místo 21,8 mil. a polovinu paměti.
 - Prostorové bloky: velké neprůhledné skupiny barvy jsou rozdělené na bloky (celé prvky podle středu, hrana
-  od 4 m, nejvýš ~240 bloků na model). Bloky mimo zorné pole se nekreslí a neprůhledné plochy se kreslí
+  od 4 m; v průměru aspoň 40 000 trojúhelníků na blok, nejvýš ~240 bloků na model – každý blok je volání
+  kreslení a těch brýle zvládnou jen stovky). Bloky mimo zorné pole se nekreslí a neprůhledné plochy se kreslí
   od nejbližších, takže zakryté plochy za zdmi se nevybarvují. Obraz je stejný; výběr, barvy, dveře a kolize
   pracují dál se sloučenou geometrií. Pro porovnání výkonu jde vypnout v nastavení VR („Jen zorné pole“).
 - Ladění výkonu (nastavení VR): položky úrovně zobrazení jdou přepnout jednotlivě – stíny v koutech, rubové

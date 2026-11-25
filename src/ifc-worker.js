@@ -9,13 +9,24 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { cacheGet, cachePut, cacheInfo, cacheClear } from './geo-cache.js';
 import { findLeaves, NOT_SWINGING } from './doors.js';
 import { featureEdges, aoVolume } from './shading.js';
+import { MeshoptSimplifier } from 'meshoptimizer';
 
 /** Prostorové bloky: nejmenší hrana bloku v m; hrana se zvětšuje, dokud bloků není nejvýš MAX_BLOCKS
  * (každý blok je jedno volání kreslení, těch brýle zvládnou jen stovky). */
 const BLOCK_MIN = 4;
 const MAX_BLOCKS = 240;
-/** Skupina barvy s méně indexy se nedělí (úspora by byla menší než cena volání kreslení navíc). */
-const MIN_SPLIT = 30000;
+/** Blok má průměrně aspoň tolik trojúhelníků: menší by ušetřily méně, než stojí volání kreslení navíc. */
+const BLOCK_TRIS = 40000;
+/** Skupina barvy s méně indexy se nedělí. */
+const MIN_SPLIT = 2 * BLOCK_TRIS * 3;
+
+/**
+ * Zjednodušení těžkých dílů (výtahy, armatury, zařizovací předměty od výrobců mívají statisíce
+ * trojúhelníků na kus): díl s aspoň SIMPLIFY_MIN trojúhelníky se zjednoduší tak, aby se tvar
+ * nikde neodchýlil o víc než SIMPLIFY_ERROR metrů. Normály zůstávají původní, hrany ploch se drží.
+ */
+const SIMPLIFY_MIN = 100;
+const SIMPLIFY_ERROR = 0.002;
 
 /** Instance web-ifc. Každá má vlastní paměť WASM s pevným stropem 4 GB; když se další model
  * do poslední instance nevejde, založí se nová (jinak by se po pár velkých modelech nenačetl už žádný). */
@@ -54,7 +65,72 @@ async function newApi() {
 
 /** Cesta k WASM; web-ifc se spustí až s prvním modelem (worker mezipaměti ho nepotřebuje). */
 function init(path) { wasmPath = path; }
-const start = () => ready || (ready = newApi());
+const start = () => ready || (ready = Promise.all([newApi(), MeshoptSimplifier.ready]).then(([a]) => a));
+
+/** Hrana ostřejší než tento úhel zůstane po zjednodušení ostrá (normály se přes ni nevyhlazují). */
+const CREASE_COS = Math.cos((35 * Math.PI) / 180);
+
+/**
+ * Zjednoduší díl (P = polohy, inds = indexy); vrátí { P, N, inds }, nebo null, když by se ušetřilo
+ * málo. Těžké díly z web-ifc mívají každý trojúhelník s vlastními vrcholy: pro zjednodušení se vrcholy
+ * na stejném místě sloučí a normály se pak spočítají znovu ze zjednodušené sítě (rovné plochy ploché,
+ * oblé hladké, hrany ostřejší než 35° ostré). mirrored = zrcadlený díl (pořadí vrcholů se pak obrátí).
+ */
+function simplifyPart(P, inds, mirrored) {
+  const remap = MeshoptSimplifier.generatePositionRemap(P, 3);
+  const W = new Uint32Array(inds.length);
+  for (let i = 0; i < inds.length; i++) W[i] = remap[inds[i]];
+  // Permissive: díly od výrobců bývají nevodotěsné (pláty přes sebe), bez něj se skoro nic nezjednoduší;
+  // odchylka tvaru zůstává hlídaná (SIMPLIFY_ERROR). LockBorder: okraje otevřených ploch zůstanou na místě,
+  // aby na sebe navazující díly (jiná barva, jiný díl) neměly mezery a zuby
+  const [out] = MeshoptSimplifier.simplify(W, P, 3, 0, SIMPLIFY_ERROR, ['ErrorAbsolute', 'Prune', 'Permissive', 'LockBorder']);
+  if (!out.length || out.length > inds.length * 0.8) return null;
+  const T = out.length / 3, vc = P.length / 3;
+  // normály trojúhelníků (délka = 2× plocha) a trojúhelníky u každého vrcholu
+  const F = new Float32Array(T * 3), deg = new Uint32Array(vc + 1);
+  const sg = mirrored ? -1 : 1;
+  for (let t = 0; t < T; t++) {
+    const a = out[t * 3] * 3, b = out[t * 3 + 1] * 3, c = out[t * 3 + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    F[t * 3] = sg * (uy * vz - uz * vy); F[t * 3 + 1] = sg * (uz * vx - ux * vz); F[t * 3 + 2] = sg * (ux * vy - uy * vx);
+    deg[out[t * 3] + 1]++; deg[out[t * 3 + 1] + 1]++; deg[out[t * 3 + 2] + 1]++;
+  }
+  for (let v = 0; v < vc; v++) deg[v + 1] += deg[v];
+  const inc = new Uint32Array(out.length), fill = deg.slice(0, vc);
+  for (let i = 0; i < out.length; i++) inc[fill[out[i]]++] = (i / 3) | 0;
+  const len = (t) => Math.hypot(F[t * 3], F[t * 3 + 1], F[t * 3 + 2]) || 1;
+  // každý roh: součet normál sousedních trojúhelníků, které s ním nesvírají ostrou hranu;
+  // stejné normály u jednoho vrcholu sdílejí jeden výstupní vrchol
+  const P2 = new Grow(Float32Array, out.length * 3), N2 = new Grow(Float32Array, out.length * 3);
+  const I2 = new Uint32Array(out.length);
+  const made = new Map(); // vrchol → [nx, ny, nz, index, …]
+  for (let i = 0; i < out.length; i++) {
+    const v = out[i], t = (i / 3) | 0, lt = len(t);
+    let nx = 0, ny = 0, nz = 0;
+    for (let k = deg[v]; k < deg[v + 1]; k++) {
+      const u = inc[k];
+      const d = (F[t * 3] * F[u * 3] + F[t * 3 + 1] * F[u * 3 + 1] + F[t * 3 + 2] * F[u * 3 + 2]) / (lt * len(u));
+      if (d >= CREASE_COS) { nx += F[u * 3]; ny += F[u * 3 + 1]; nz += F[u * 3 + 2]; }
+    }
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l; ny /= l; nz /= l;
+    let list = made.get(v), idx = -1;
+    if (list) for (let k = 0; k < list.length; k += 4) {
+      if (list[k] * nx + list[k + 1] * ny + list[k + 2] * nz > 0.9999) { idx = list[k + 3]; break; }
+    }
+    if (idx < 0) {
+      idx = P2.n / 3;
+      P2.reserve(3); N2.reserve(3);
+      P2.a[P2.n++] = P[v * 3]; P2.a[P2.n++] = P[v * 3 + 1]; P2.a[P2.n++] = P[v * 3 + 2];
+      N2.a[N2.n++] = nx; N2.a[N2.n++] = ny; N2.a[N2.n++] = nz;
+      if (!list) made.set(v, (list = []));
+      list.push(nx, ny, nz, idx);
+    }
+    I2[i] = idx;
+  }
+  return { P: P2.result(), N: N2.result(), inds: I2 };
+}
 
 const GB = 2 ** 30;
 const HEAP_LIMIT = 4 * GB;
@@ -312,6 +388,8 @@ function buildGeometry(modelID) {
   const ids = new Set();
   /** počet zrcadlených dílů (obrácené pořadí vrcholů) */
   let mirrored = 0;
+  /** zjednodušené díly: počet, trojúhelníky před a po */
+  const reduced = { parts: 0, before: 0, after: 0 };
   /** obrysové hrany celého modelu (úsečky, 6 čísel na úsečku) */
   const edges = new Grow(Float32Array);
   // dveře: díly se před zápisem roztřídí na zárubeň a křídla (křídla jdou v prohlížeči otočit)
@@ -333,9 +411,21 @@ function buildGeometry(modelID) {
    * `outline` = obrysové hrany (ne u křídel dveří: otáčí se).
    */
   const append = (id, b, verts, m, inds, outline = true) => {
-    const vCount = verts.length / 6;
-    const P = new Float32Array(vCount * 3), N = new Float32Array(vCount * 3);
+    let vCount = verts.length / 6;
+    let P = new Float32Array(vCount * 3), N = new Float32Array(vCount * 3);
     transform(verts, m, P, N, 0);
+    // zrcadlené umístění (záporný determinant, např. kolena a odbočky potrubí): pořadí vrcholů se obrátí,
+    // jinak by byl díl rubem ven (osvětlený zevnitř, s kreslením jen předních stran by zmizel)
+    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+    if (inds.length >= SIMPLIFY_MIN * 3) {
+      let s = null;
+      try { s = simplifyPart(P, inds, det < 0); } catch (e) { console.warn('Díl nejde zjednodušit', id, e); }
+      if (s) {
+        reduced.parts++; reduced.before += inds.length / 3; reduced.after += s.inds.length / 3;
+        ({ P, N, inds } = s);
+        vCount = P.length / 3;
+      }
+    }
     if (outline) featureEdges(P, inds, edges);
     const base = b.pos.n / 3;
     b.pos.reserve(vCount * 3);
@@ -346,9 +436,6 @@ function buildGeometry(modelID) {
     const start = b.idx.n;
     b.idx.reserve(inds.length);
     const I = b.idx.a;
-    // zrcadlené umístění (záporný determinant, např. kolena a odbočky potrubí): pořadí vrcholů se obrátí,
-    // jinak by byl díl rubem ven (osvětlený zevnitř, s kreslením jen předních stran by zmizel)
-    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
     if (det < 0) {
       mirrored++;
       for (let i = 0; i < inds.length; i += 3) {
@@ -491,7 +578,8 @@ function buildGeometry(modelID) {
   }
   const edgeArr = edges.result();
   transfer.push(edgeArr.buffer);
-  return { meta: { schema, elements, simplified, mirrored, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer, ids };
+  if (reduced.parts) console.info(`Zjednodušeno ${reduced.parts} dílů: ${reduced.before} → ${reduced.after} trojúhelníků`);
+  return { meta: { schema, elements, simplified, mirrored, reduced, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer, ids };
 }
 
 /**
@@ -597,21 +685,21 @@ function spatialBlocks(list, doors) {
   }
   if (!info.length) return;
   const cellKey = (C, r, s) => `${Math.floor(C[r * 3] / s)},${Math.floor(C[r * 3 + 1] / s)},${Math.floor(C[r * 3 + 2] / s)}`;
-  // hrana bloku: od BLOCK_MIN zvětšovat, dokud je bloků (= volání kreslení) moc
-  const others = list.length - info.length;
-  let s = BLOCK_MIN;
-  for (;;) {
-    let count = others;
-    for (const { n, C } of info) {
-      const cells = new Set();
-      for (let r = 0; r < n; r++) cells.add(cellKey(C, r, s));
-      count += cells.size;
-    }
-    if (count <= MAX_BLOCKS || s > 500) break;
-    s *= 1.25;
-  }
+  // bloků (= volání kreslení) na skupinu podle počtu trojúhelníků, za celý model nejvýš MAX_BLOCKS
+  const tris = info.reduce((t, { b }) => t + b.idx.n / 3, 0);
+  const budget = Math.min(MAX_BLOCKS - (list.length - info.length), tris / BLOCK_TRIS);
   const remap = new Map(); // klíč skupiny → { oldStart, newStart } (pro díly křídel dveří)
   for (const { b, n, C } of info) {
+    const limit = Math.max(1, Math.floor(budget * (b.idx.n / 3) / tris));
+    if (limit < 2) continue;
+    // hrana bloku: od BLOCK_MIN zvětšovat, dokud je bloků moc
+    let s = BLOCK_MIN;
+    for (;;) {
+      const cells = new Set();
+      for (let r = 0; r < n; r++) cells.add(cellKey(C, r, s));
+      if (cells.size <= limit || s > 500) break;
+      s *= 1.25;
+    }
     const byCell = new Map();
     for (let r = 0; r < n; r++) {
       const k = cellKey(C, r, s);
