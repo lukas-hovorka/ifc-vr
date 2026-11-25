@@ -145,6 +145,7 @@ export class VRPanel {
     if (r.key.startsWith('q:')) { this.onQuality?.(r.key.slice(2)); return true; }
     if (r.key.startsWith('moses:')) { this.onMoses?.(+r.key.slice(6)); return true; }
     if (r.key === 'edges') { this.onEdges?.(); return true; }
+    if (r.key === 'unhide') { this.onUnhide?.(); return true; }
     if (r.key.startsWith('tw:')) { this.onTweak?.(r.key.slice(3)); return true; }
     if (r.key === 'blocks') { this.onBlocks?.(this.state.blocks === false); return true; }
     if (r.key === 'doors') { this.onAutoDoors?.(!this.state.autoDoors); return true; }
@@ -492,8 +493,13 @@ export class VRPanel {
     c.font = font('typography.table-cell', S);
     const maxLines = Math.max(1, ...st.models.map((m) => this.breakName(m.name, nameW, 3).length));
     const rowH = Math.max(baseH, maxLines * lineH + 14 * S);
-    const addY = bottom - bh;
+    let addY = bottom - bh;
     this.button('add', 'Přidat soubor (ukončí VR)', pad, addY, inner);
+    // skryté prvky: tlačítko nad přidáním souboru
+    if (st.hidden) {
+      addY -= bh + gap;
+      this.button('unhide', `Zobrazit skryté prvky (${st.hidden})`, pad, addY, inner, { primary: true });
+    }
     const navH = bh + gap;
     let perPage = Math.max(1, Math.floor((addY - gap - y) / rowH));
     if (st.models.length > perPage) perPage = Math.max(1, Math.floor((addY - gap - navH - y) / rowH));

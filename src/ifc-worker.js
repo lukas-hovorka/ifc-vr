@@ -392,6 +392,8 @@ function buildGeometry(modelID) {
   const reduced = { parts: 0, before: 0, after: 0 };
   /** obrysové hrany celého modelu (úsečky, 6 čísel na úsečku) */
   const edges = new Grow(Float32Array);
+  /** úseky hran podle prvku [začátek, počet čísel, id] (skrytý prvek nemá nechat hrany ve vzduchu) */
+  const edgeRanges = [];
   // dveře: díly se před zápisem roztřídí na zárubeň a křídla (křídla jdou v prohlížeči otočit)
   const doorIds = new Set(idsOfType(modelID, WebIFC.IFCDOOR));
   const ops = doorOps(modelID, doorIds);
@@ -426,7 +428,11 @@ function buildGeometry(modelID) {
         vCount = P.length / 3;
       }
     }
-    if (outline) featureEdges(P, inds, edges);
+    if (outline) {
+      const e0 = edges.n;
+      featureEdges(P, inds, edges);
+      if (edges.n > e0) edgeRanges.push(e0, edges.n - e0, id);
+    }
     const base = b.pos.n / 3;
     b.pos.reserve(vCount * 3);
     b.nrm.reserve(vCount * 3);
@@ -579,7 +585,7 @@ function buildGeometry(modelID) {
   const edgeArr = edges.result();
   transfer.push(edgeArr.buffer);
   if (reduced.parts) console.info(`Zjednodušeno ${reduced.parts} dílů: ${reduced.before} → ${reduced.after} trojúhelníků`);
-  return { meta: { schema, elements, simplified, mirrored, reduced, coord, doors, storeys }, buckets: out, edges: edgeArr, ao, transfer, ids };
+  return { meta: { schema, elements, simplified, mirrored, reduced, coord, doors, storeys, edgeRanges: Uint32Array.from(edgeRanges) }, buckets: out, edges: edgeArr, ao, transfer, ids };
 }
 
 /**

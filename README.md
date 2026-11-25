@@ -39,6 +39,10 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
   podle tvaru (tenká deska přes většinu výšky, klika a sklo k ní patří, pant proti klice); posuvné, skládací
   a otočné dveře se neotevírají. Volba **Dveře: Automaticky** (na počítači i ve VR, pamatuje se) otevře dveře,
   když k nim přijdete na 2 m, a zavře je, když odejdete dál než 3 m; dveře otevřené nebo zavřené ručně nechá.
+- **skrývání prvků**: u vybraného prvku (na počítači i ve VR) *Skrýt prvek* nebo *Skrýt typ* – všechny prvky
+  stejného typu IFC (např. IfcRoof, IfcCovering) ve všech načtených modelech. Skrytý prvek se nekreslí (ani jeho
+  obrysové hrany), nejde vybrat, nejde na něj teleportovat ani do něj narazit. *Zobrazit vše* (na počítači pod
+  vybraným prvkem, ve VR v záložce Modely) vrátí všechny skryté.
 - **měření** (na počítači sekce *Měření*, ve VR záložka **Měření** – dokud je otevřená, spoušť měří místo výběru prvku):
   - *Laser* (jen VR): vzdálenost od ovladače k místu, kam míříte, je vidět průběžně u kurzoru; spoušť ji uloží,
   - *Dva body*: vzdálenost a její složky ΔX, ΔY, ΔZ,

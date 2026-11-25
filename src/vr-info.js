@@ -10,11 +10,13 @@ export class InfoPanel extends VRPanel {
     super({ fps: false });
     this.mesh.name = 'vr-info';
     this.mesh.visible = false;
-    this.state = { info: null, page: 0, door: null };
+    this.state = { info: null, page: 0, door: null, typeCount: 0 };
     /** zrušit výběr prvku */
     this.onDeselect = null;
     /** otevřít / zavřít vybrané dveře */
     this.onDoor = null;
+    /** skrýt vybraný prvek ('one') nebo všechny prvky jeho typu ('type') */
+    this.onHide = null;
     this.ready = true;
     this.draw();
   }
@@ -34,6 +36,7 @@ export class InfoPanel extends VRPanel {
     else if (r.key === 'prev') this.state.page = Math.max(0, this.state.page - 1);
     else if (r.key === 'deselect') { this.onDeselect?.(); return true; }
     else if (r.key === 'door') { this.onDoor?.(); return true; }
+    else if (r.key === 'hide' || r.key === 'hideType') { this.onHide?.(r.key === 'hide' ? 'one' : 'type'); return true; }
     this.draw();
     return true;
   }
@@ -82,8 +85,13 @@ export class InfoPanel extends VRPanel {
     c.fillText(this.ellipsize([inf.type, inf.storey].filter(Boolean).join(' · '), inner), pad, y);
     y += lineH * 1.1;
 
-    // tlačítka dole: dveře (u dveří s křídly) a zrušení výběru
+    // tlačítka dole: skrytí prvku / typu, pod nimi dveře (u dveří s křídly) a zrušení výběru
     const btnY = H - pad - bh;
+    const hideY = btnY - gap - bh;
+    if (inf.type && st.typeCount) {
+      this.button('hide', 'Skrýt prvek', pad, hideY, half);
+      this.button('hideType', `Skrýt typ (${st.typeCount})`, pad + half + gap, hideY, half);
+    } else this.button('hide', 'Skrýt prvek', pad, hideY, inner);
     if (st.door) {
       this.button('door', st.door === 'open' ? 'Zavřít dveře' : 'Otevřít dveře', pad, btnY, half);
       this.button('deselect', 'Zrušit výběr', pad + half + gap, btnY, half, { primary: true });
@@ -99,7 +107,7 @@ export class InfoPanel extends VRPanel {
       for (const [k, v] of s.props) rows.push([k, v, false]);
     }
     const rowH = px('size.table.row-height') * S * 0.85;
-    const bottom = btnY - gap;
+    const bottom = hideY - gap;
     const navH = bh + gap;
     let perPage = Math.max(1, Math.floor((bottom - y) / rowH));
     if (rows.length > perPage) perPage = Math.max(1, Math.floor((bottom - y - navH) / rowH));

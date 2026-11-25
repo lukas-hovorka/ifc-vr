@@ -322,6 +322,7 @@ function updateLoaded() {
   ui.loadedCount.textContent = loaded.length > 1 ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
   const label = loaded.length === 1 ? loaded[0].name : loaded.length ? plural(loaded.length, 'model', 'modely', 'modelů') : '';
   xr.panel.set({ modelName: label });
+  updateHidden();
   document.title = label ? `IFC VR – ${label}` : 'IFC VR';
   ui.dropTitle.textContent = loaded.length ? 'Přidejte další soubory IFC' : 'Přetáhněte soubory IFC sem';
   for (const li of ui.models.children) {
@@ -478,7 +479,7 @@ async function loadBuffer(buffer, name, key = '', job = null) {
     registered = true;
     if (res.props) modelProps.set(modelID, { ...res.props, at: new Map(res.props.ids.map((id, i) => [id, i])) });
     res.modelID = modelID;
-    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys, res.edges, res.ao);
+    res.aligned = viewer.addModel(res.modelID, res.buckets, true, res.coord, res.doors, res.storeys, res.edges, res.ao, res.edgeRanges);
     let tris = 0;
     for (const b of res.buckets) tris += b.index.length / 3;
     loaded.push({ modelID: res.modelID, name, size, schema: res.schema || '', elements: res.elements, tris, visible: true, color: null, custom: null });
@@ -687,10 +688,49 @@ async function select(ref) {
   const info = propsOf(ref);
   if (my !== selectSeq || !info) return;
   if (loaded.length > 1) info.model = loaded.find((m) => m.modelID === ref.model)?.name || '';
-  xr.info.set({ info, door: doorState(ref) });
+  xr.info.set({ info, door: doorState(ref), typeCount: info.type ? elementsOfType(info.type).length : 0 });
   renderInfo(info);
   renderDoor(ref);
 }
+
+// ---------- skrývání prvků ----------
+/** Prvky daného typu IFC ve všech načtených modelech [{ model, id }]. */
+function elementsOfType(type) {
+  const out = [];
+  for (const [model, p] of modelProps) {
+    for (let n = 0; n < p.head.length; n++) if (p.head[n][0] === type) out.push({ model, id: p.ids[n] });
+  }
+  return out;
+}
+
+/** Skryje vybraný prvek ('one') nebo všechny prvky jeho typu ('type'). */
+function hideSelected(kind) {
+  const ref = viewer.selectedId;
+  if (!ref) return;
+  const type = propsOf(ref)?.type;
+  const refs = kind === 'type' && type ? elementsOfType(type) : [ref];
+  const n = viewer.hideElements(refs);
+  select(null);
+  setStatus(kind === 'type' ? `Skryto: ${type} (${plural(n, 'prvek', 'prvky', 'prvků')}).` : 'Prvek je skrytý.');
+  updateHidden();
+}
+
+function showHidden() {
+  viewer.showAll();
+  setStatus('Skryté prvky jsou zase vidět.');
+  updateHidden();
+}
+
+/** Počet skrytých prvků na počítači i ve VR. */
+function updateHidden() {
+  const n = viewer.hiddenCount;
+  $('hidden-row').hidden = !n;
+  $('hidden-text').textContent = n ? `Skryto: ${plural(n, 'prvek', 'prvky', 'prvků')}` : '';
+  xr.panel.set({ hidden: n });
+}
+$('btn-unhide').addEventListener('click', showHidden);
+xr.info.onHide = hideSelected;
+xr.panel.onUnhide = showHidden;
 
 // ---------- dveře: křídlo se otočí kolem pantu ----------
 function toggleDoor(ref) {
@@ -759,7 +799,21 @@ function renderInfo(info) {
   }
   table.appendChild(tb);
   wrap.appendChild(table);
-  root.append(h, sub, wrap);
+  // skrýt prvek / všechny prvky stejného typu (počet ve všech modelech)
+  const hide = document.createElement('div');
+  hide.className = 'info__hide';
+  const btn = (text, kind, title) => {
+    const b = document.createElement('button');
+    b.className = 'ebc-btn';
+    b.type = 'button';
+    b.textContent = text;
+    if (title) b.title = title;
+    b.addEventListener('click', () => hideSelected(kind));
+    hide.appendChild(b);
+  };
+  btn('Skrýt prvek', 'one');
+  if (info.type) btn(`Skrýt typ (${elementsOfType(info.type).length})`, 'type', `Skrýt všechny prvky ${info.type}`);
+  root.append(h, sub, hide, wrap);
   ui.info.replaceChildren(root);
 }
 

@@ -112,6 +112,9 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .info__name { font: var(--ebc-typography-subtitle); margin: 0; overflow-wrap: anywhere; }
 .info__sub { margin: 0; color: var(--ebc-color-text-secondary); }
 .info__door { display: flex; align-items: center; gap: var(--ebc-space-8); }
+.info__hide { display: flex; flex-wrap: wrap; gap: var(--ebc-space-8); }
+.info__hidden { flex-direction: row; align-items: center; justify-content: space-between; border-top: 1px solid var(--ebc-color-border-default); }
+.info__hidden[hidden] { display: none; }
 .info .ebc-table-wrap { max-height: 40vh; }
 .info .ebc-table td { overflow-wrap: anywhere; }
 .info .ebc-table td:first-child { color: var(--ebc-color-text-secondary); width: 45%; }

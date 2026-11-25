@@ -133,6 +133,8 @@ export class Viewer {
     this.edgesOn = false;
     this.edgeLines = new Map();
     this.edgeMat = new THREE.LineBasicMaterial({ color: t('color.bg.deep') });
+    /** skryté prvky: "model:id" → uložené úseky indexů a hran [{ attr, start, data }] (pro zobrazení) */
+    this.hidden = new Map();
     /** dveře, jejichž křídla se právě otáčejí */
     this.swinging = new Set();
     /** automatické otevírání dveří u uživatele (volba) */
@@ -349,6 +351,7 @@ export class Viewer {
     this.meshes = [];
     for (const l of this.edgeLines.values()) { l.geometry.dispose(); l.removeFromParent(); }
     this.edgeLines.clear();
+    this.hidden.clear();
     for (const g of this.groups.values()) { g.userData.ao?.aoTex.value.dispose(); g.removeFromParent(); }
     this.groups.clear();
     this.refMatrix = null;
@@ -365,7 +368,7 @@ export class Viewer {
    * `coord` = posun modelu k počátku z web-ifc: model se maticí umístí do souřadnic prvního modelu.
    * Vrátí false, když je model dál než FAR_APART (jiný souřadnicový systém) a zůstal v počátku.
    */
-  addModel(modelID, buckets, fit = true, coord = null, doors = [], storeys = [], edges = null, ao = null) {
+  addModel(modelID, buckets, fit = true, coord = null, doors = [], storeys = [], edges = null, ao = null, edgeRanges = null) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
     group.userData.modelID = modelID;
@@ -426,6 +429,7 @@ export class Viewer {
       lines.raycast = () => {};
       lines.matrixAutoUpdate = false;
       lines.visible = this.edgesOn;
+      lines.userData.ranges = edgeRanges;
       group.add(lines);
       lines.updateMatrixWorld(true);
       this.edgeLines.set(modelID, lines);
@@ -469,6 +473,76 @@ export class Viewer {
 
   get visibleMeshes() { return this.meshes.filter((m) => m.visible); }
 
+  // ---------- skryté prvky ----------
+  /**
+   * Skryje prvky [{ model, id }]: jejich trojúhelníky (i v blocích, sdílí indexy) a obrysové hrany se
+   * stáhnou do bodu – nekreslí se, nejdou vybrat, nejde na ně teleportovat ani do nich narazit.
+   * Původní úseky se uloží a showAll() je vrátí. Vrátí počet nově skrytých prvků.
+   */
+  hideElements(refs) {
+    const byModel = new Map();
+    for (const r of refs) {
+      const k = doorKey(r);
+      if (this.hidden.has(k)) continue;
+      this.hidden.set(k, []);
+      (byModel.get(r.model) || byModel.set(r.model, new Set()).get(r.model)).add(r.id);
+    }
+    if (this.selectedId && this.hidden.has(doorKey(this.selectedId))) this.clearHighlight();
+    for (const [model, ids] of byModel) {
+      // křídla dveří se vyjmou napřed (vyjmutá později by se četla z už stažených indexů)
+      for (const id of ids) {
+        const d = this.doors.get(doorKey({ model, id }));
+        if (d && !d.built) this.buildLeaves(d, this.groups.get(model));
+      }
+      const save = (attr, ranges, step) => {
+        const a = attr.array;
+        let n = 0;
+        for (let i = 0; i < ranges.length; i += 3) {
+          const id = ranges[i + 2];
+          if (!ids.has(id)) continue;
+          const start = ranges[i], count = ranges[i + 1];
+          this.hidden.get(doorKey({ model, id })).push({ attr, start, data: a.slice(start, start + count) });
+          // indexy: všechny na první vrchol; hrany (souřadnice): všechny body na první bod
+          if (step === 1) a.fill(a[start], start, start + count);
+          else for (let j = start + 3; j < start + count; j += 3) { a[j] = a[start]; a[j + 1] = a[start + 1]; a[j + 2] = a[start + 2]; }
+          attr.addUpdateRange(start, count);
+          n++;
+        }
+        if (!n) return;
+        // hodně úseků (celý typ prvků): jedno nahrání celého pole místo tisíců malých
+        if (attr.updateRanges.length > 64) attr.clearUpdateRanges();
+        attr.needsUpdate = true;
+      };
+      for (const m of this.meshes) if (m.userData.modelID === model && m.userData.ranges) save(m.geometry.index, m.userData.ranges, 1);
+      const lines = this.edgeLines.get(model);
+      if (lines?.userData.ranges) save(lines.geometry.getAttribute('position'), lines.userData.ranges, 3);
+    }
+    this.invalidate();
+    return [...byModel.values()].reduce((n, s) => n + s.size, 0);
+  }
+
+  /** Počet skrytých prvků. */
+  get hiddenCount() { return this.hidden.size; }
+
+  /** Zobrazí všechny skryté prvky. */
+  showAll() {
+    const touched = new Set();
+    // pozpátku: u stejného úseku platí nejstarší uložený stav
+    for (const parts of [...this.hidden.values()].reverse()) {
+      for (const { attr, start, data } of parts.reverse()) {
+        attr.array.set(data, start);
+        attr.addUpdateRange(start, data.length);
+        touched.add(attr);
+      }
+    }
+    for (const attr of touched) {
+      if (attr.updateRanges.length > 64) attr.clearUpdateRanges();
+      attr.needsUpdate = true;
+    }
+    this.hidden.clear();
+    this.invalidate();
+  }
+
   removeModel(modelID) {
     if (this.selectedId?.model === modelID) this.clearHighlight();
     for (const m of this.meshes) if (m.userData.modelID === modelID) this.disposeMesh(m);
@@ -478,6 +552,7 @@ export class Viewer {
     this.groups.get(modelID)?.userData.ao?.aoTex.value.dispose();
     this.groups.get(modelID)?.removeFromParent();
     this.groups.delete(modelID);
+    for (const k of [...this.hidden.keys()]) if (k.startsWith(`${modelID}:`)) this.hidden.delete(k);
     for (const [k, d] of this.doors) if (d.model === modelID) { this.doors.delete(k); this.swinging.delete(d); }
     if (!this.groups.size) this.refMatrix = null;
     this.updateBounds();
