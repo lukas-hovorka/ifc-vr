@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { t, px, font } from './theme.js';
 import { QUALITY, TURN_SPEEDS } from './quality.js';
-import { drawUser } from './map.js';
+import { drawUser, ZOOM_MAX } from './map.js';
 import { MOSES_RADII } from './moses.js';
 import { MEASURE_TOOLS } from './measure.js';
 
@@ -117,6 +117,21 @@ export class VRPanel {
     return r;
   }
 
+  /**
+   * Přiblížení mapy (factor > 1 přiblíží, 0 = celý půdorys). `atPointer` = kolem místa, kam se míří
+   * (páčka), jinak kolem středu výřezu (tlačítka).
+   */
+  zoomMap(factor, atPointer = false) {
+    const z = this.mapZoom;
+    if (!z) return;
+    const r = atPointer && this.regions.find((x) => x.key === 'map');
+    const fu = r ? (this.pointer.x - r.x) / r.w : 0.5, fv = r ? (this.pointer.y - r.y) / r.h : 0.5;
+    this.mapView = factor ? z.zoom(this.mapView, factor, fu, fv) : z.full();
+    // při plynulém přibližování páčkou se panel překresluje nejvýš 15× za sekundu
+    const now = performance.now();
+    if (!atPointer || now - (this.mapDrawn || 0) > 66) { this.mapDrawn = now; this.draw(); }
+  }
+
   clearHover() { if (this.hover) { this.hover = null; this.draw(); } }
 
   click() {
@@ -127,6 +142,7 @@ export class VRPanel {
     if (r.key === 'prev') { this.state[pg] = Math.max(0, this.state[pg] - 1); this.draw(); return true; }
     if (r.key.startsWith('tab-')) {
       this.state.colorFor = null; this.state.tab = r.key.slice(4); this.state.mapMsg = ''; this.onTab?.(this.state.tab); this.draw(); return true; }
+    if (r.key.startsWith('mz:')) { this.zoomMap(r.key === 'mz:in' ? 2 : r.key === 'mz:out' ? 0.5 : 0); return true; }
     if (r.key.startsWith('lvl:')) { this.state.mapLevel = +r.key.slice(4); this.state.mapMsg = ''; this.draw(); return true; }
     if (r.key === 'map') {
       this.onMap?.(this.state.mapLevel ?? 0, (this.pointer.x - r.x) / r.w, (this.pointer.y - r.y) / r.h);
@@ -414,7 +430,13 @@ export class VRPanel {
       c.fillText(this.ellipsizeMiddle(lv.name, inner), pad, y);
       y += 22 * S;
     }
-    y += gap;
+    // přiblížení: oddálit, přiblížit, celý půdorys (víc i páčkou při míření do mapy)
+    const view = this.mapView || { k: 1 };
+    const zw = (inner - 2 * gap) / 3;
+    this.button('mz:out', 'Oddálit', pad, y, zw, { disabled: view.k <= 1 });
+    this.button('mz:in', 'Přiblížit', pad + zw + gap, y, zw, { disabled: view.k >= ZOOM_MAX });
+    this.button('mz:all', 'Celý půdorys', pad + 2 * (zw + gap), y, zw, { disabled: view.k <= 1 });
+    y += bh + gap;
     // zpráva dole
     const msgH = 22 * S;
     const areaH = bottom - y - msgH;
@@ -422,17 +444,19 @@ export class VRPanel {
     const pw = plan.canvas.width, ph = plan.canvas.height;
     const k = Math.min(inner / pw, areaH / ph);
     const w = pw * k, h = ph * k, x = pad + (inner - w) / 2;
-    c.drawImage(plan.canvas, x, y, w, h);
+    src.draw(c, levels[st.mapLevel], view, x, y, w, h);
     c.strokeStyle = t('color.border.default');
     c.lineWidth = 1.5 * S;
     c.strokeRect(x, y, w, h);
     this.regions.push({ key: 'map', x, y, w, h, disabled: false });
     const me = src.user();
-    if (me && me.u >= 0 && me.u <= 1 && me.v >= 0 && me.v <= 1) drawUser(c, x + me.u * w, y + me.v * h, me.dx, me.dy, 7 * S);
+    const at = me && { fu: (me.u - (view.u0 || 0)) * view.k, fv: (me.v - (view.v0 || 0)) * view.k };
+    if (at && at.fu >= 0 && at.fu <= 1 && at.fv >= 0 && at.fv <= 1) drawUser(c, x + at.fu * w, y + at.fv * h, me.dx, me.dy, 7 * S);
     c.font = font('typography.small', S);
     c.textBaseline = 'top';
     c.fillStyle = st.mapMsg ? t('color.text.error') : t('color.text.secondary');
-    const hint = st.mode === 'mini' ? 'Namiřte do půdorysu a stiskněte spoušť: vstup do modelu 1:1 na tom místě.' : 'Namiřte do půdorysu a stiskněte spoušť: přesun na místo.';
+    const hint = (st.mode === 'mini' ? 'Spoušť do půdorysu: vstup do modelu 1:1 na tom místě.' : 'Spoušť do půdorysu: přesun na místo.')
+      + ' Pravá páčka nahoru / dolů: přiblížit / oddálit.';
     c.fillText(st.mapMsg || hint, pad, y + h + 6 * S, inner);
   }
 

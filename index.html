@@ -113,8 +113,14 @@
     </header>
     <div class="ebc-card__body">
       <div class="map-card__levels" id="map-levels" role="group" aria-label="Podlaží"></div>
+      <div class="map-card__zoom" role="group" aria-label="Přiblížení mapy">
+        <button class="ebc-btn" id="map-zoom-out" type="button" title="Oddálit" aria-label="Oddálit">−</button>
+        <span class="ebc-small map-card__zoom-level" id="map-zoom-level">100 %</span>
+        <button class="ebc-btn" id="map-zoom-in" type="button" title="Přiblížit" aria-label="Přiblížit">+</button>
+        <button class="ebc-btn" id="map-zoom-all" type="button">Celý půdorys</button>
+      </div>
       <canvas class="map-card__plan" id="map-plan"></canvas>
-      <p class="ebc-small side__contact" id="map-hint">Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí).</p>
+      <p class="ebc-small side__contact" id="map-hint">Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí). Kolečkem myši přiblížíte, tažením posunete.</p>
     </div>
   </section>
 

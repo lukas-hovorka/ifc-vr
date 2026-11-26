@@ -662,8 +662,11 @@ export class XRControls {
     // pravá: teleport / otočení, A = nahoru, B = dolů
     if (rgp) {
       const [x, y] = this.axes(rgp);
-      if (!this.teleporting && y < -0.6 && Math.abs(x) < 0.6) this.teleporting = true;
-      if (this.teleporting) {
+      // paprsek míří do mapy na panelu: páčka nahoru / dolů přibližuje k tomu místu (ne teleport ani otočení)
+      const onMap = !this.teleporting && this.hud.visible && this.panel.hover === 'map';
+      if (onMap) { if (Math.abs(y) > 0.2) this.panel.zoomMap(Math.exp(-Math.sign(y) * (Math.abs(y) - 0.2) * 3 * dt), true); }
+      else if (!this.teleporting && y < -0.6 && Math.abs(x) < 0.6) this.teleporting = true;
+      if (onMap) { /* páčka patří mapě */ } else if (this.teleporting) {
         if (y > -0.25) {
           if (this.teleportHit) this.teleportTo(this.teleportHit);
           this.teleporting = false;

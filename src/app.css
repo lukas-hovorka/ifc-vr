@@ -56,7 +56,10 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 .map-card { position: fixed; top: var(--ebc-space-16); right: var(--ebc-space-16); z-index: 5; width: min(480px, calc(100vw - 2 * var(--ebc-space-16))); max-height: calc(100vh - 2 * var(--ebc-space-16)); overflow: auto; box-shadow: var(--ebc-shadow-dialog); }
 .map-card__title { flex: 1; }
 .map-card__levels { display: flex; flex-wrap: wrap; gap: var(--ebc-space-6); }
-.map-card__plan { display: block; width: 100%; height: auto; cursor: crosshair; border: var(--ebc-border-width-thin) solid var(--ebc-color-border-default); }
+.map-card__zoom { display: flex; align-items: center; gap: var(--ebc-space-6); }
+.map-card__zoom-level { text-align: center; font-variant-numeric: tabular-nums; color: var(--ebc-color-text-secondary); }
+.map-card__zoom #map-zoom-all { margin-left: auto; }
+.map-card__plan { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: none; border: var(--ebc-border-width-thin) solid var(--ebc-color-border-default); }
 #map-hint.is-error { color: var(--ebc-color-text-error); }
 .side__quality .ebc-filter { flex: 1; }
 .side__toggle { font-size: var(--ebc-font-size-md); }

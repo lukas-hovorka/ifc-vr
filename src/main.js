@@ -4,7 +4,7 @@ import { QUALITY, loadQuality, saveQuality, loadEdges, saveEdges, loadAutoDoors,
 import { XRControls } from './xr.js';
 import { HELP } from './vr-panel.js';
 import { t } from './theme.js';
-import { PlanMap, drawUser } from './map.js';
+import { PlanMap, drawUser, fullView, zoomView, panView, viewToPlan, planToView, ZOOM_MAX } from './map.js';
 import { MOSES_RADII } from './moses.js';
 import { Measure } from './measure.js';
 
@@ -922,8 +922,10 @@ setStatus('Vyberte jeden nebo více souborů IFC.');
 
 // ---------- mapa: půdorys podlaží, přesun na místo ----------
 let mapLevel = 0;
+/** přiblížení mapy na počítači (výřez půdorysu) */
+let mapView = fullView();
 const NOT_HERE = 'Sem se přesunout nejde (mimo budovu, ve zdi nebo bez podlahy).';
-const MAP_HINT = 'Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí).';
+const MAP_HINT = 'Klepnutím do půdorysu se přesunete na místo (pohled z výšky očí). Kolečkem myši přiblížíte, tažením posunete.';
 
 /** Poloha a směr pohledu uživatele v mapě (u, v v rozsahu 0–1), nebo null (maketa ve VR). */
 function mapUser() {
@@ -961,12 +963,55 @@ function drawMapCard() {
   }).reverse());
   const plan = planMap.plan(levels[mapLevel]).canvas;
   const c = ui.mapPlan;
-  c.width = plan.width; c.height = plan.height;
+  if (c.width !== plan.width || c.height !== plan.height) { c.width = plan.width; c.height = plan.height; }
   const ctx = c.getContext('2d');
-  ctx.drawImage(plan, 0, 0);
+  // během přibližování zvětšený celý půdorys, po zastavení ostrý výřez
+  if (planMap.draw(ctx, levels[mapLevel], mapView, 0, 0, c.width, c.height)) scheduleMapRedraw(200);
   const me = mapUser();
-  if (me) drawUser(ctx, me.u * c.width, me.v * c.height, me.dx, me.dy, Math.max(4, c.width / 110));
+  const at = me && planToView(mapView, me.u, me.v);
+  if (at && at.fu >= 0 && at.fu <= 1 && at.fv >= 0 && at.fv <= 1) drawUser(ctx, at.fu * c.width, at.fv * c.height, me.dx, me.dy, Math.max(4, c.width / 110));
+  $('map-zoom-out').disabled = $('map-zoom-all').disabled = mapView.k <= 1;
+  $('map-zoom-in').disabled = mapView.k >= ZOOM_MAX;
+  $('map-zoom-level').textContent = `${Math.round(mapView.k * 100)} %`;
 }
+
+let mapTimer = 0;
+function scheduleMapRedraw(ms) {
+  clearTimeout(mapTimer);
+  mapTimer = setTimeout(() => { if (!ui.mapCard.hidden) drawMapCard(); }, ms);
+}
+
+/** Přiblížení mapy (factor > 1 přiblíží) kolem bodu výřezu fu, fv. */
+function zoomMap(factor, fu = 0.5, fv = 0.5) {
+  mapView = factor ? zoomView(mapView, factor, fu, fv) : fullView();
+  drawMapCard();
+}
+$('map-zoom-in').addEventListener('click', () => zoomMap(2));
+$('map-zoom-out').addEventListener('click', () => zoomMap(0.5));
+$('map-zoom-all').addEventListener('click', () => zoomMap(0));
+// kolečko myši: přiblížení k místu pod kurzorem
+ui.mapPlan.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const r = ui.mapPlan.getBoundingClientRect();
+  zoomMap(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002)), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+}, { passive: false });
+// tažení: posun přiblížené mapy (klepnutí bez tažení přesouvá na místo)
+let mapDrag = null;
+ui.mapPlan.addEventListener('pointerdown', (e) => {
+  mapDrag = { x: e.clientX, y: e.clientY, moved: false };
+  ui.mapPlan.setPointerCapture(e.pointerId);
+});
+ui.mapPlan.addEventListener('pointermove', (e) => {
+  if (!mapDrag) return;
+  const dx = e.clientX - mapDrag.x, dy = e.clientY - mapDrag.y;
+  if (!mapDrag.moved && Math.hypot(dx, dy) < 5) return;
+  mapDrag.moved = true;
+  if (mapView.k <= 1) return;
+  const r = ui.mapPlan.getBoundingClientRect();
+  mapView = panView(mapView, dx / r.width, dy / r.height);
+  mapDrag.x = e.clientX; mapDrag.y = e.clientY;
+  drawMapCard();
+});
 
 function setMapHint(err) {
   ui.mapHint.textContent = err || MAP_HINT;
@@ -985,9 +1030,13 @@ $('map-close').addEventListener('click', () => openMap(false));
 
 // klepnutí do půdorysu: na počítači pohled z výšky očí, směr pohledu zůstane
 ui.mapPlan.addEventListener('click', (e) => {
+  const dragged = mapDrag?.moved;
+  mapDrag = null;
+  if (dragged) return;
   const r = ui.mapPlan.getBoundingClientRect();
   const level = planMap.levels()[mapLevel];
-  const { x, z } = planMap.toModel((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  const p = viewToPlan(mapView, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  const { x, z } = planMap.toModel(p.u, p.v);
   const pt = level && planMap.floorAt(level, x, z);
   if (!pt) { setMapHint(NOT_HERE); return; }
   setMapHint('');
@@ -1013,13 +1062,16 @@ viewer.controls.addEventListener('change', () => {
 });
 
 // mapa na panelu ve VR
-xr.panel.mapSource = { levels: () => planMap.levels(), plan: (l) => planMap.plan(l), user: mapUser };
+xr.panel.mapSource = { levels: () => planMap.levels(), plan: (l) => planMap.plan(l), draw: (...a) => planMap.draw(...a), user: mapUser };
 xr.panel.onTab = (tab) => {
   if (tab === 'map') xr.panel.state.mapLevel = currentLevel();
   if (viewer.renderer.xr.isPresenting) measure.setActive(tab === 'measure');
 };
-xr.panel.onMap = (i, u, v) => {
+xr.panel.mapView = fullView();
+xr.panel.mapZoom = { zoom: zoomView, full: fullView };
+xr.panel.onMap = (i, fu, fv) => {
   const level = planMap.levels()[i];
+  const { u, v } = viewToPlan(xr.panel.mapView, fu, fv);
   const { x, z } = planMap.toModel(u, v);
   const pt = level && planMap.floorAt(level, x, z);
   if (!pt) { xr.panel.set({ mapMsg: NOT_HERE }); return; }

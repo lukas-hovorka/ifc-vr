@@ -12,6 +12,38 @@ const SAME_LEVEL = 0.3;
 /** Přesun na plochu nejvýš tolik nad podlahou podlaží (schod, práh), ne na stůl nebo parapet. */
 const MAX_STEP = 0.45;
 const SIZE = 1024;
+/** Největší přiblížení mapy (násobek celého půdorysu). */
+export const ZOOM_MAX = 12;
+/** Ostrý výřez se kreslí, až se přiblížení na chvíli zastaví (do té doby zvětšený celý půdorys). */
+const SHARP_AFTER = 180;
+
+/**
+ * Přiblížení mapy: k = násobek (1 = celý půdorys), u0, v0 = levý horní roh výřezu (0–1), t = čas změny.
+ * Výřez má stejný poměr stran jako celý půdorys (velikost 1/k).
+ */
+export const fullView = () => ({ k: 1, u0: 0, v0: 0, t: 0 });
+
+/** Přiblíží (factor > 1) / oddálí výřez tak, že bod výřezu (fu, fv v rozsahu 0–1) zůstane na místě. */
+export function zoomView(view, factor, fu = 0.5, fv = 0.5) {
+  const k = Math.min(ZOOM_MAX, Math.max(1, view.k * factor));
+  const u = view.u0 + fu / view.k, v = view.v0 + fv / view.k;
+  return clampView({ k, u0: u - fu / k, v0: v - fv / k });
+}
+
+/** Posune výřez o (dfu, dfv) jeho velikosti (tažení mapy). */
+export function panView(view, dfu, dfv) {
+  return clampView({ k: view.k, u0: view.u0 - dfu / view.k, v0: view.v0 - dfv / view.k });
+}
+
+function clampView({ k, u0, v0 }) {
+  const m = 1 - 1 / k;
+  return { k, u0: Math.min(m, Math.max(0, u0)), v0: Math.min(m, Math.max(0, v0)), t: performance.now() };
+}
+
+/** Bod výřezu (fu, fv) → bod celého půdorysu (u, v). */
+export const viewToPlan = (view, fu, fv) => ({ u: view.u0 + fu / view.k, v: view.v0 + fv / view.k });
+/** Bod celého půdorysu (u, v) → bod výřezu (fu, fv); mimo výřez je mimo 0–1. */
+export const planToView = (view, u, v) => ({ fu: (u - view.u0) * view.k, fv: (v - view.v0) * view.k });
 
 export class PlanMap {
   constructor(viewer) {
@@ -23,7 +55,7 @@ export class PlanMap {
   }
 
   /** Půdorysy se nakreslí znovu (změna modelů, viditelnosti, barvy). */
-  invalidate() { this.version++; this.cache.clear(); }
+  invalidate() { this.version++; this.cache.clear(); this.zoomKey = null; this.zoomCanvas = null; }
 
   /**
    * Podlaží všech modelů sloučená podle výšky: [{ name (všechny názvy), label (krátký popisek), y }] odspodu.
@@ -104,8 +136,27 @@ export class PlanMap {
     return c;
   }
 
-  render(level) {
-    const v = this.v, r = v.renderer, b = this.bounds();
+  /**
+   * Nakreslí půdorys podlaží ve výřezu `view` do obdélníku (x, y, w, h). Přiblížený výřez se vykreslí
+   * znovu ostře (pamatuje se jeden), během přibližování se kreslí zvětšený celý půdorys.
+   * Vrátí true, když je výřez zatím neostrý (volající ho má za chvíli překreslit).
+   */
+  draw(ctx, level, view, x, y, w, h) {
+    const full = this.plan(level).canvas;
+    if (view.k <= 1) { ctx.drawImage(full, x, y, w, h); return false; }
+    const key = `${level.y.toFixed(2)}|${this.version}|${view.k.toFixed(4)}|${view.u0.toFixed(5)}|${view.v0.toFixed(5)}`;
+    if (key !== this.zoomKey && performance.now() - view.t >= SHARP_AFTER) {
+      const b = this.bounds();
+      this.zoomCanvas = this.render(level, { minX: b.minX + view.u0 * b.w, minZ: b.minZ + view.v0 * b.d, w: b.w / view.k, d: b.d / view.k }).canvas;
+      this.zoomKey = key;
+    }
+    if (key === this.zoomKey) { ctx.drawImage(this.zoomCanvas, x, y, w, h); return false; }
+    ctx.drawImage(full, view.u0 * full.width, view.v0 * full.height, full.width / view.k, full.height / view.k, x, y, w, h);
+    return true;
+  }
+
+  render(level, b = this.bounds()) {
+    const v = this.v, r = v.renderer;
     const scale = SIZE / Math.max(b.w, b.d);
     const W = Math.max(1, Math.round(b.w * scale)), H = Math.max(1, Math.round(b.d * scale));
     const top = level.y + CUT;

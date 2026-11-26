@@ -21,6 +21,9 @@ Běží v prohlížeči Quest Browser, do brýlí se nic neinstaluje. Na počít
 - **mapa**: půdorys podlaží (pohled shora, řez 1,2 m nad podlahou) s polohou a směrem pohledu uživatele;
   klepnutím do půdorysu se přesunete na místo – na počítači tlačítko *Mapa* (pohled z výšky očí), ve VR záložka
   **Mapa** na panelu u levé ruky. Přesun jde jen na podlahu podlaží nebo schod (ne do zdi, na nábytek ani mimo budovu)
+  Mapa jde přiblížit až 12×: na počítači kolečkem myši k místu pod kurzorem a tažením posunout, nebo tlačítky
+  −, + a *Celý půdorys*; ve VR tlačítky *Oddálit*, *Přiblížit*, *Celý půdorys* nebo pravou páčkou nahoru / dolů
+  při míření do mapy (přiblíží k místu, kam míříte). Přiblížený výřez se po zastavení vykreslí znovu ostře.
 - **Mojžíšův mód**: model kolem uživatele „ustoupí“ – ve válci o poloměru 3, 6 nebo 10 m se nad úrovní nohou
   nic nekreslí (zdi, stropy, nábytek), podlaha zůstane, okraj výřezu je oranžový; je vidět dovnitř budovy.
   Ve VR kolem vás (panel u levé ruky), na počítači kolem středu otáčení od podlahy jeho podlaží. Co je ve výřezu,
